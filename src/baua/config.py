@@ -13,7 +13,7 @@ import logging
 import os
 import sys
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
@@ -39,7 +39,7 @@ class DataConfig:
     name: str = "hillstrom"
     raw_dir: str = "data/raw"
     processed_dir: str = "data/processed"
-    max_rows: Optional[int] = None
+    max_rows: int | None = None
     treatment_definition: str = "any_email"
     primary_outcome: str = "visit"
     test_size: float = 0.3
@@ -64,7 +64,7 @@ class ModelConfig:
 class BudgetConfig:
     cost_per_treatment: float = 1.0
     budget_ratio: float = 0.05
-    strategies: List[str] = field(default_factory=lambda: [
+    strategies: list[str] = field(default_factory=lambda: [
         "random", "response", "s_learner", "t_learner", "x_learner", "class_transform"])
 
 
@@ -73,15 +73,15 @@ class PacingConfig:
     n_slots: int = 24
     prime_slot_boost: float = 1.8
     damping: float = 0.3
-    strategies: List[str] = field(default_factory=lambda: ["no_pacing", "uniform", "feedback"])
+    strategies: list[str] = field(default_factory=lambda: ["no_pacing", "uniform", "feedback"])
 
 
 @dataclass
 class SensitivityConfig:
-    budget_ratios: List[float] = field(default_factory=lambda: [0.01, 0.02, 0.05, 0.10, 0.20])
-    score_noise_levels: List[float] = field(default_factory=lambda: [0.0, 0.25, 0.5, 1.0, 2.0])
-    calibration_methods: List[str] = field(default_factory=lambda: ["none", "isotonic"])
-    sample_sizes: List[int] = field(default_factory=lambda: [5000, 20000, 64000])
+    budget_ratios: list[float] = field(default_factory=lambda: [0.01, 0.02, 0.05, 0.10, 0.20])
+    score_noise_levels: list[float] = field(default_factory=lambda: [0.0, 0.25, 0.5, 1.0, 2.0])
+    calibration_methods: list[str] = field(default_factory=lambda: ["none", "isotonic"])
+    sample_sizes: list[int] = field(default_factory=lambda: [5000, 20000, 64000])
 
 
 @dataclass
@@ -100,7 +100,7 @@ class ExperimentConfig:
     # 校准器必须在独立验证集上拟合；该比例从**训练集内部**再切分
     calibration_val_size: float = 0.2
     # 绝对阈值策略的业务阈值列表（"预测转化率低于 X 不投"）
-    thresholds: List[float] = field(default_factory=lambda: [0.05, 0.08, 0.10, 0.15])
+    thresholds: list[float] = field(default_factory=lambda: [0.05, 0.08, 0.10, 0.15])
     n_seeds: int = 10
 
 
@@ -124,7 +124,7 @@ class Config:
     # 记录配置文件来源，便于复现
     source_path: str = ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "seed": self.seed,
             "data": vars(self.data),
@@ -138,20 +138,20 @@ class Config:
             "source_path": self.source_path,
         }
 
-    def clone(self) -> "Config":
+    def clone(self) -> Config:
         return copy.deepcopy(self)
 
 
-def _build(cls, raw: Dict[str, Any]):
-    known = {f for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
+def _build(cls, raw: dict[str, Any] | None):
+    known = set(cls.__dataclass_fields__)
     return cls(**{k: v for k, v in (raw or {}).items() if k in known})
 
 
-def load_config(path: str, overrides: Optional[Dict[str, Any]] = None) -> Config:
+def load_config(path: str, overrides: dict[str, Any] | None = None) -> Config:
     """从 YAML 加载配置，overrides 为点号路径（如 data.max_rows）。"""
     if not os.path.exists(path):
         raise FileNotFoundError(f"配置文件不存在: {path}")
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
 
     cfg = Config(

@@ -14,28 +14,39 @@ import platform
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
 from . import __version__
-from .budget import (bootstrap_gain_ci, budget_units_for_ratio,
-                     sensitivity_over_budget, sensitivity_over_noise,
-                     simulate_budget_allocation)
+from .budget import (
+    bootstrap_gain_ci,
+    budget_units_for_ratio,
+    sensitivity_over_budget,
+    sensitivity_over_noise,
+    simulate_budget_allocation,
+)
 from .config import Config, get_logger
-from .data import (CATEGORICAL_COLUMNS, assert_no_leakage, build_analysis_frame,
-                   feature_matrix, hillstrom_feature_columns, load_hillstrom_raw,
-                   make_synthetic, synthetic_feature_columns, validate_hillstrom)
-from .metrics import (auuc, calibration_report, cate_calibration, qini_curve,
-                      qini_coefficient)
+from .data import (
+    CATEGORICAL_COLUMNS,
+    assert_no_leakage,
+    build_analysis_frame,
+    hillstrom_feature_columns,
+    load_hillstrom_raw,
+    make_synthetic,
+    validate_hillstrom,
+)
+from .metrics import auuc, calibration_report, cate_calibration, qini_coefficient, qini_curve
 from .models import build_model
 from .pacing import compare_pacing_strategies, simulate_pacing
 
 logger = get_logger()
 
-import matplotlib
-matplotlib.use("Agg")  # 无显示环境
+# matplotlib 必须在导入 pyplot 之前切换为无显示后端（E402 是这条约束的必然代价）
+import matplotlib  # noqa: E402
+
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 
@@ -46,11 +57,11 @@ import matplotlib.pyplot as plt  # noqa: E402
 class PreparedData:
     train: pd.DataFrame
     eval_: pd.DataFrame
-    feature_cols: List[str]
-    cat_cols: List[str]
+    feature_cols: list[str]
+    cat_cols: list[str]
     y_col: str
-    true_cate_eval: Optional[np.ndarray] = None
-    report: Dict[str, object] = field(default_factory=dict)
+    true_cate_eval: np.ndarray | None = None
+    report: dict[str, Any] = field(default_factory=dict)
 
 
 def _strat_key(df: pd.DataFrame, y_col: str) -> pd.Series:
@@ -65,7 +76,7 @@ def _strat_key(df: pd.DataFrame, y_col: str) -> pd.Series:
 
 def prepare_data(cfg: Config) -> PreparedData:
     rng = np.random.default_rng(cfg.seed)
-    report: Dict[str, object] = {"dataset": cfg.data.name}
+    report: dict[str, Any] = {"dataset": cfg.data.name}
 
     if cfg.data.name == "hillstrom":
         raw = load_hillstrom_raw(cfg.data.raw_dir)
@@ -91,7 +102,7 @@ def prepare_data(cfg: Config) -> PreparedData:
 
     if cfg.data.name == "synthetic":
         feature_cols = [c for c in frame.columns if c.startswith("x")]
-        cat_cols: List[str] = []
+        cat_cols: list[str] = []
     else:
         # 显式白名单 + 泄漏断言（不要用"排除法"，那正是本项目踩过的坑）
         feature_cols = hillstrom_feature_columns()
@@ -103,7 +114,7 @@ def prepare_data(cfg: Config) -> PreparedData:
     # 分层划分 train / eval
     key = _strat_key(frame, "y")
     uniq = key.unique()
-    eval_idx: List[int] = []
+    eval_idx: list[int] = []
     for u in uniq:
         idx = np.flatnonzero(key.values == u)
         if len(idx) == 0:
@@ -139,20 +150,30 @@ def prepare_data(cfg: Config) -> PreparedData:
 # --------------------------------------------------------------------------
 # 建模与打分
 # --------------------------------------------------------------------------
-def fit_all_models(data: PreparedData, cfg: Config) -> Tuple[Dict[str, np.ndarray], Dict[str, object]]:
+def fit_all_models(
+    data: PreparedData, cfg: Config, keep_models: bool = False
+) -> tuple[dict[str, np.ndarray], dict[str, Any], dict[str, Any]]:
+    """训练全部策略模型并打分。
+
+    返回 (scores, diagnostics, fitted_models)。
+    `fitted_models` 只在 keep_models=True 时非空，用于持久化（供在线服务加载）。
+    """
     train, ev = data.train, data.eval_
     Xtr = train[data.feature_cols]
     Xev = ev[data.feature_cols]
     t_tr, y_tr = train["treatment"].values, train["y"].values
 
-    scores: Dict[str, np.ndarray] = {}
-    diagnostics: Dict[str, object] = {}
+    scores: dict[str, np.ndarray] = {}
+    diagnostics: dict[str, Any] = {}
+    fitted: dict[str, Any] = {}
 
     for name in cfg.budget.strategies:
         logger.info("训练策略模型: %s", name)
         model = build_model(name, cfg.model, cfg.seed)
         model.fit(Xtr, t_tr, y_tr)
         scores[name] = np.asarray(model.predict(Xev), dtype=float)
+        if keep_models:
+            fitted[name] = model
         diagnostics[name] = {"score_kind": model.score_kind,
                             "score_mean": float(np.mean(scores[name])),
                             "score_std": float(np.std(scores[name]))}
@@ -170,10 +191,10 @@ def fit_all_models(data: PreparedData, cfg: Config) -> Tuple[Dict[str, np.ndarra
         diagnostics["oracle"] = {"score_kind": "true_cate",
                                  "note": "仅半合成数据可用，作为理论上界"}
 
-    return scores, diagnostics
+    return scores, diagnostics, fitted
 
 
-def _calibration_study(data: PreparedData, cfg: Config) -> Dict[str, object]:
+def _calibration_study(data: PreparedData, cfg: Config) -> dict[str, Any]:
     """概率校准研究：校准能否改善排序类决策与阈值类决策？
 
     关键设计：
@@ -183,8 +204,12 @@ def _calibration_study(data: PreparedData, cfg: Config) -> Dict[str, object]:
       这个函数把"不该有差异"也实测一遍（可被证伪）；
     - 再验证"敏感项"：绝对阈值策略（"预测率低于 X 不投"）对校准高度敏感。
     """
-    from .calibration import (IsotonicCalibrator, SigmoidCalibrator,
-                              compare_calibration_effect, threshold_policy_table)
+    from .calibration import (
+        IsotonicCalibrator,
+        SigmoidCalibrator,
+        compare_calibration_effect,
+        threshold_policy_table,
+    )
     from .metrics import calibration_report
     from .models import ResponseModel
 
@@ -195,7 +220,7 @@ def _calibration_study(data: PreparedData, cfg: Config) -> Dict[str, object]:
     treated_train = data.train[data.train["treatment"] == 1].reset_index(drop=True)
     rng = np.random.default_rng(cfg.seed)
     idx = np.arange(len(treated_train))
-    val_idx: List[int] = []
+    val_idx: list[int] = []
     y_tr = treated_train["y"].values
     for label in np.unique(y_tr):
         sub = idx[y_tr == label]
@@ -211,15 +236,16 @@ def _calibration_study(data: PreparedData, cfg: Config) -> Dict[str, object]:
     raw_val = np.asarray(model.predict(val_part[feats]), dtype=float)
     y_val = val_part["y"].values
 
-    calibrators = {"isotonic": IsotonicCalibrator(), "platt": SigmoidCalibrator()}
+    calibrators: dict[str, Any] = {"isotonic": IsotonicCalibrator(),
+                                   "platt": SigmoidCalibrator()}
     fitted = {name: cal.fit(raw_val, y_val) for name, cal in calibrators.items()}
 
     raw_ev = np.asarray(model.predict(data.eval_[feats]), dtype=float)
     m = t_ev == 1
     rep_raw = calibration_report(y_ev[m], raw_ev[m])
 
-    score_dict: Dict[str, np.ndarray] = {"response_raw": raw_ev}
-    info: Dict[str, object] = {
+    score_dict: dict[str, np.ndarray] = {"response_raw": raw_ev}
+    info: dict[str, Any] = {
         "n_fit": int(len(fit_part)),
         "n_val": int(len(val_part)),
         "ece_before": float(rep_raw["ece"]),
@@ -261,7 +287,7 @@ def _ensure_dir(p: str) -> str:
     return p
 
 
-def plot_qini(y, t, scores: Dict[str, np.ndarray], path: str) -> None:
+def plot_qini(y, t, scores: dict[str, np.ndarray], path: str) -> None:
     plt.figure(figsize=(6.2, 4.2), dpi=140)
     for name, sc in scores.items():
         cur = qini_curve(y, t, sc)
@@ -293,7 +319,7 @@ def plot_budget_sensitivity(df: pd.DataFrame, path: str, ylabel: str = "gain") -
     plt.close()
 
 
-def plot_pacing_spend(res_by_strategy: Dict[str, Dict[str, object]], path: str) -> None:
+def plot_pacing_spend(res_by_strategy: dict[str, dict[str, Any]], path: str) -> None:
     plt.figure(figsize=(6.2, 4.2), dpi=140)
     for name, res in res_by_strategy.items():
         tab = res["slots"]
@@ -310,12 +336,12 @@ def plot_pacing_spend(res_by_strategy: Dict[str, Dict[str, object]], path: str) 
 # --------------------------------------------------------------------------
 # 主实验
 # --------------------------------------------------------------------------
-def run_experiment(cfg: Config, tag: str = "default") -> Dict[str, object]:
+def run_experiment(cfg: Config, tag: str = "default") -> dict[str, Any]:
     data = prepare_data(cfg)
     y_ev = data.eval_["y"].values.astype(float)
     t_ev = data.eval_["treatment"].values.astype(int)
 
-    scores, diagnostics = fit_all_models(data, cfg)
+    scores, diagnostics, _ = fit_all_models(data, cfg)
 
     # 1) 排序指标（真实观测结构上的 Qini/AUUC）
     rows = []
@@ -326,7 +352,7 @@ def run_experiment(cfg: Config, tag: str = "default") -> Dict[str, object]:
     ranking = pd.DataFrame(rows).sort_values("qini", ascending=False)
 
     # 2) 校准（响应模型 vs 处理组真实结果）
-    calib = {}
+    calib: dict[str, Any] = {}
     if "response" in scores:
         m = t_ev == 1
         calib["response_on_treated"] = calibration_report(y_ev[m], scores["response"][m])
@@ -473,7 +499,7 @@ def _sample_size_sensitivity(data: PreparedData, cfg: Config, budget_units: int)
     return pd.DataFrame(rows)
 
 
-def _run_pacing(data: PreparedData, scores: Dict[str, np.ndarray], cfg: Config) -> Dict[str, object]:
+def _run_pacing(data: PreparedData, scores: dict[str, np.ndarray], cfg: Config) -> dict[str, Any]:
     """节奏模拟。value 的来源决定结果是否"有真实依据"。
 
     跑两个供给场景（这是本项目 pacing 研究的关键对照）：
@@ -500,7 +526,7 @@ def _run_pacing(data: PreparedData, scores: Dict[str, np.ndarray], cfg: Config) 
 
     scenarios = {"relaxed_supply": 0.0, "constrained_supply": 0.9}
     tables = []
-    details: Dict[str, Dict[str, object]] = {}
+    details: dict[str, dict[str, Any]] = {}
     for sc_name, conc in scenarios.items():
         tbl = compare_pacing_strategies(
             score, value, cfg.pacing.strategies,

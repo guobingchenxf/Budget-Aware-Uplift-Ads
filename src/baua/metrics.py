@@ -14,12 +14,12 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any
 
 import numpy as np
 
 
-def _prefix_stats(y: np.ndarray, t: np.ndarray) -> Dict[str, np.ndarray]:
+def _prefix_stats(y: np.ndarray, t: np.ndarray) -> dict[str, np.ndarray]:
     n_t = np.cumsum(t)
     n_c = np.cumsum(1 - t)
     y_t = np.cumsum(y * t)
@@ -27,7 +27,7 @@ def _prefix_stats(y: np.ndarray, t: np.ndarray) -> Dict[str, np.ndarray]:
     return {"n_t": n_t, "n_c": n_c, "y_t": y_t, "y_c": y_c}
 
 
-def qini_curve(y, t, score) -> Dict[str, np.ndarray]:
+def qini_curve(y, t, score) -> dict[str, np.ndarray]:
     """按分数降序的前缀 Qini 曲线与 uplift 曲线。
 
     返回 dict:
@@ -92,7 +92,7 @@ def auuc(y, t, score, normalized: bool = True) -> float:
     return float(np.trapz(cur["uplift"], cur["fractions"]))
 
 
-def policy_gain(y, t, selected: np.ndarray) -> Dict[str, float]:
+def policy_gain(y, t, selected: np.ndarray) -> dict[str, float]:
     """被选中集合 S 的增量收益估计（Qini 形式）与规模信息。
 
     G(S) = Y_t(S) - Y_c(S) * N_t(S) / N_c(S)
@@ -110,10 +110,7 @@ def policy_gain(y, t, selected: np.ndarray) -> Dict[str, float]:
     n_c = float((1 - ts).sum())
     y_t = float((ys * ts).sum())
     y_c = float((ys * (1 - ts)).sum())
-    if n_c <= 0:
-        gain = float("nan")
-    else:
-        gain = y_t - y_c * n_t / n_c
+    gain = float("nan") if n_c <= 0 else y_t - y_c * n_t / n_c
     return {
         "n_selected": int(sel.sum()),
         "n_treated": int(n_t),
@@ -137,7 +134,7 @@ def select_top_k(score: np.ndarray, k: int) -> np.ndarray:
     return mask
 
 
-def calibration_report(y_true, p_pred, n_bins: int = 10) -> Dict[str, object]:
+def calibration_report(y_true, p_pred, n_bins: int = 10) -> dict[str, Any]:
     """概率校准报告：ECE、平均绝对偏差、分桶明细。
 
     只对"概率型"分数（响应模型输出）有意义；uplift 分数可正可负，
@@ -152,7 +149,7 @@ def calibration_report(y_true, p_pred, n_bins: int = 10) -> Dict[str, object]:
 
     bins = np.quantile(p_pred, np.linspace(0, 1, n_bins + 1))
     bins = np.unique(bins)
-    rows: List[Dict[str, float]] = []
+    rows: list[dict[str, float]] = []
     ece = 0.0
     n = len(y_true)
     for i in range(len(bins) - 1):
@@ -171,7 +168,7 @@ def calibration_report(y_true, p_pred, n_bins: int = 10) -> Dict[str, object]:
     return {"ece": float(ece), "mean_abs_bin_gap": mae, "n_bins_used": len(rows), "bins": rows}
 
 
-def cate_calibration(pred_cate, true_cate, n_bins: int = 10) -> Dict[str, object]:
+def cate_calibration(pred_cate, true_cate, n_bins: int = 10) -> dict[str, Any]:
     """半合成数据专用：预测 CATE 与真实 CATE 的校准与相关。
 
     真实 CATE 只在半合成数据上已知，因此这是**验证评估链路**的手段，

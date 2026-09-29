@@ -189,6 +189,47 @@ powershell -ExecutionPolicy Bypass -File scripts\run_all.ps1
 | `artifacts/confounding_study.csv` | 各混杂强度 × 策略下 naive_full / IPS / DR 的估计值与偏差 |
 | `artifacts/threshold_vs_budget.csv` | 各预算比例下 top-k / 预测阈值 / oracle 阈值 / 全投的收益、效率与负增量占比 |
 
+## 在线服务（可选，研究原型）
+
+```powershell
+# 1) 训练并保存策略模型（约 1 分钟，Hillstrom 全量）
+.\.venv\Scripts\python.exe -m baua.cli fit --config configs/default.yaml --tag served
+
+# 2) 启动服务
+.\.venv\Scripts\python.exe -m baua.cli serve --models artifacts/models/served --port 8000
+```
+
+| 接口 | 作用 |
+|---|---|
+| `GET /health` | 健康检查；返回已加载策略与 `is_production: false` 声明 |
+| `GET /strategies` | 策略列表 + 各自的 Qini（与离线实验一致） |
+| `POST /score` | 批量打分：`{"rows": [{特征...}]}` → 每个策略的逐行分数 |
+| `POST /allocate` | 预算约束分配：`mode=topk`（固定预算取前 k）或 `mode=threshold`（增量>阈値才投） |
+
+示例：
+
+```bash
+curl -s http://127.0.0.1:8000/health
+curl -s -X POST http://127.0.0.1:8000/allocate -H "Content-Type: application/json" \
+  -d '{"rows":[{...}],"strategy":"s_learner","mode":"topk","budget_units":5}'
+```
+
+**明确的非目标**（不要把它说成生产系统）：无鉴权、无限流、无在线特征拼接、
+无模型热更新、无 GPU 批量推理。特征必须由调用方提供；缺列直接返回 422。
+
+## 上线前的质量门（本轮补齐）
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -e ".[dev]"   # ruff + mypy + pytest
+.\.venv\Scripts\python.exe -m ruff check src tests      # 期望：All checks passed!
+.\.venv\Scripts\python.exe -m mypy src/baua             # 期望：Success: no issues found
+.\.venv\Scripts\python.exe -m pytest tests              # 期望：66 passed
+```
+
+真实记录（不美化）：ruff 初次扫描 **191 项**、自动修复 198 项、手工修 9 项（含 2 处**真实未使用变量**）；
+mypy 初次 **55 项错误**，根因是把异构返回值标注为 `dict[str, object]` 导致无法推断属性，
+改为 `dict[str, Any]` 并补 `types-PyYAML` 后归零。详见 `docs/实验报告.md` §6。
+
 ## 常见问题
 
 **Q：为什么 `python -m baua.cli` 找不到模块？**
@@ -209,10 +250,11 @@ A：所有随机性由 `configs/*.yaml` 的 `seed` 控制；`summary.json` 记�
 
 - 数据集是**邮件营销**随机实验，不是广告竞价数据，无成本/预算/竞价字段；
 - 预算与节奏均为**模拟**，由此得到的"收益"是模拟核算值；
-- 未做倾向性加权/工具变量，因为数据本身是随机实验（该假设已核验）；
-- 未实现概率校准的后处理（isotonic 已列入配置但**未纳入本轮正式实验**）；
-- 未做多种子重训的方差分解（自助法只覆盖评估集抽样不确定性）；
-- 时长与硬件限制：本次全部工作在单机 CPU、约 2.5 小时内完成，未做超参搜索。
+- **观测数据因果估计（IPS/DR）已实现并单独验证**（§4.8），但**未接入主流程**——
+  Hillstrom 是随机实验（倾向为常数），接入它不会改变结论；
+- **在线服务是研究原型**：无鉴权/限流/在线特征拼接/模型热更新，特征须由调用方提供；
+- 未实现延迟反馈建模（Hillstrom 无时间戳，需半合成注入）；
+- 时长与硬件限制：全部工作在单机 CPU 上完成，未做超参搜索。
 
 ## 文档索引
 

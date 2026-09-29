@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -98,7 +98,7 @@ def simulate_pacing(
     peak_boost: float = 1.8,
     supply_concentration: float = 0.0,
     seed: int = 0,
-) -> Dict[str, object]:
+) -> dict[str, Any]:
     """在分时段设定下模拟一种节奏策略。
 
     参数

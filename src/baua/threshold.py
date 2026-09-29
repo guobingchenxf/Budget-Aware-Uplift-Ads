@@ -19,7 +19,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -35,8 +35,8 @@ def threshold_mask(score: np.ndarray, threshold: float) -> np.ndarray:
 def evaluate_policy_masks(
     y: np.ndarray,
     t: np.ndarray,
-    masks: Dict[str, np.ndarray],
-    true_cate: Optional[np.ndarray] = None,
+    masks: dict[str, np.ndarray],
+    true_cate: np.ndarray | None = None,
     cost_per_treatment: float = 1.0,
 ) -> pd.DataFrame:
     """对若干"选择掩码"评估规模、增量收益、单位成本收益与负增量用户占比。
@@ -48,13 +48,13 @@ def evaluate_policy_masks(
     y = np.asarray(y, dtype=float)
     t = np.asarray(t, dtype=float)
     n = len(y)
-    rows: List[Dict[str, object]] = []
+    rows: list[dict[str, Any]] = []
     for name, mask in masks.items():
         mask = np.asarray(mask, dtype=bool)
         g = policy_gain(y, t, mask)
         n_sel = int(mask.sum())
         cost = n_sel * cost_per_treatment
-        row: Dict[str, object] = {
+        row: dict[str, Any] = {
             "policy": name,
             "n_selected": n_sel,
             "selected_fraction": n_sel / n if n else float("nan"),

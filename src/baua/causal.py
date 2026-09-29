@@ -33,7 +33,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -54,7 +54,7 @@ def cross_fit_propensity(
     n_splits: int = 5,
     seed: int = 0,
     clip_min: float = 0.02,
-) -> Tuple[np.ndarray, Dict[str, float]]:
+) -> tuple[np.ndarray, dict[str, float]]:
     """交叉拟合倾向得分 P(t=1|x)。返回 (ê, 诊断信息)。"""
     from sklearn.linear_model import LogisticRegression
     from sklearn.model_selection import StratifiedKFold
@@ -85,7 +85,7 @@ def cross_fit_outcomes(
     n_splits: int = 5,
     seed: int = 0,
     n_estimators: int = 200,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """交叉拟合两个结果模型 μ̂1(x)=E[y|x,t=1]、μ̂0(x)=E[y|x,t=0]。
 
     ⚠️ 实现要点（本项目踩过的坑，见实验报告 §5）：
@@ -131,9 +131,9 @@ def estimate_subset(
     t: np.ndarray,
     selected: np.ndarray,
     e_hat: np.ndarray,
-    mu1: Optional[np.ndarray] = None,
-    mu0: Optional[np.ndarray] = None,
-) -> Dict[str, float]:
+    mu1: np.ndarray | None = None,
+    mu0: np.ndarray | None = None,
+) -> dict[str, float]:
     """对选中集合 S 估计其总增量收益 Σ_{i∈S} τ_i，并给出三种估计量。
 
     ⚠️ 口径说明（本项目实测发现的易混淆点）：
@@ -182,7 +182,7 @@ def compare_estimators_over_policies(
     y: np.ndarray,
     t: np.ndarray,
     true_cate: np.ndarray,
-    scores: Dict[str, np.ndarray],
+    scores: dict[str, np.ndarray],
     budget_units: int,
     e_hat: np.ndarray,
     mu1: np.ndarray,
@@ -198,12 +198,12 @@ def compare_estimators_over_policies(
     y = np.asarray(y, dtype=float)
     t = np.asarray(t, dtype=float)
     true_cate = np.asarray(true_cate, dtype=float)
-    rows: List[Dict[str, object]] = []
+    rows: list[dict[str, Any]] = []
     for name, sc in scores.items():
         sel = select_top_k(np.asarray(sc, dtype=float), budget_units)
         est = estimate_subset(y, t, sel, e_hat, mu1, mu0)
         truth = float(true_cate[sel].sum())
-        row = {"policy": name, "truth": truth, **est}
+        row: dict[str, Any] = {"policy": name, "truth": truth, **est}
         # 只对"口径一致"的估计量计算偏差（Qini 式目标是 n_t·mean(tau)，不可直接比）
         for k in ("naive_full", "ips", "dr"):
             v = row[k]
@@ -218,7 +218,7 @@ def compare_estimators_over_policies(
 def confounding_study(
     n: int = 40000,
     seed: int = 20260929,
-    confounding_levels: Tuple[float, ...] = (0.0, 0.5, 1.0, 2.0),
+    confounding_levels: tuple[float, ...] = (0.0, 0.5, 1.0, 2.0),
     budget_ratio: float = 0.05,
     uplift_strength: float = 3.0,
     mode: str = "conflicting",
@@ -229,10 +229,8 @@ def confounding_study(
     分别报告三种估计量相对真值的偏差。
     """
     from .data import make_synthetic
-    from .models import TLearner
-    from .config import ModelConfig
 
-    rows: List[Dict[str, object]] = []
+    rows: list[dict[str, Any]] = []
     for gamma in confounding_levels:
         df, true_cate = make_synthetic(n=n, seed=seed, mode=mode,
                                        uplift_strength=uplift_strength,

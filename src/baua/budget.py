@@ -17,7 +17,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -26,7 +26,7 @@ from .metrics import auuc, policy_gain, qini_coefficient, select_top_k
 
 
 def simulate_budget_allocation(
-    scores: Dict[str, np.ndarray],
+    scores: dict[str, np.ndarray],
     y: np.ndarray,
     t: np.ndarray,
     budget_units: int,
@@ -44,7 +44,7 @@ def simulate_budget_allocation(
                   None/0 表示不加噪声。**同一噪声会作用到所有策略**以保证公平。
     """
     rng = np.random.default_rng(seed)
-    rows: List[Dict[str, object]] = []
+    rows: list[dict[str, Any]] = []
 
     for name, sc in scores.items():
         sc = np.asarray(sc, dtype=float)
@@ -79,7 +79,7 @@ def simulate_budget_allocation(
 
 
 def bootstrap_gain_ci(
-    scores: Dict[str, np.ndarray],
+    scores: dict[str, np.ndarray],
     y: np.ndarray,
     t: np.ndarray,
     budget_units: int,
@@ -145,10 +145,10 @@ def budget_units_for_ratio(n_candidates: int, budget_ratio: float,
 
 
 def sensitivity_over_budget(
-    scores: Dict[str, np.ndarray],
+    scores: dict[str, np.ndarray],
     y: np.ndarray,
     t: np.ndarray,
-    budget_ratios: List[float],
+    budget_ratios: list[float],
     cost_per_treatment: float = 1.0,
     seed: int = 0,
 ) -> pd.DataFrame:
@@ -162,11 +162,11 @@ def sensitivity_over_budget(
 
 
 def sensitivity_over_noise(
-    scores: Dict[str, np.ndarray],
+    scores: dict[str, np.ndarray],
     y: np.ndarray,
     t: np.ndarray,
     budget_units: int,
-    noise_levels: List[float],
+    noise_levels: list[float],
     cost_per_treatment: float = 1.0,
     seed: int = 0,
 ) -> pd.DataFrame:

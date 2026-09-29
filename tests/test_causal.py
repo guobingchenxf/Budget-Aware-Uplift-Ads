@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
-from baua.causal import (compare_estimators_over_policies, cross_fit_outcomes,
-                         cross_fit_propensity, estimate_subset)
+from baua.causal import (
+    compare_estimators_over_policies,
+    cross_fit_outcomes,
+    cross_fit_propensity,
+    estimate_subset,
+)
 from baua.data import make_synthetic
 from baua.metrics import select_top_k
 
@@ -79,7 +82,6 @@ def test_qini_estimator_targets_scaled_estimand():
     n = 40000
     df, true_cate = make_synthetic(n=n, seed=7, mode="conflicting",
                                    uplift_strength=3.0, confounding=0.0)
-    X = df[[c for c in df.columns if c.startswith("x")]]
     t = df["treatment"].values.astype(int)
     y = df["y"].values.astype(float)
     tc = np.asarray(true_cate, dtype=float)

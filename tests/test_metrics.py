@@ -8,10 +8,16 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from baua.data import make_synthetic
-from baua.metrics import (auuc, calibration_report, cate_calibration, policy_gain,
-                          qini_curve, qini_coefficient, select_top_k)
+from baua.metrics import (
+    auuc,
+    calibration_report,
+    cate_calibration,
+    policy_gain,
+    qini_coefficient,
+    qini_curve,
+    select_top_k,
+)
 
 
 @pytest.fixture(scope="module")

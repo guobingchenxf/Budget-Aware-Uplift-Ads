@@ -16,7 +16,8 @@
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -30,7 +31,7 @@ def aggregate_multiseed(
     per_seed: pd.DataFrame,
     baseline: str = "random",
     alpha: float = 0.05,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """把逐种子的结果聚合成"均值±标准差"与"配对差异"两张表。
 
     参数
@@ -76,8 +77,8 @@ def aggregate_multiseed(
 
 
 def run_multiseed(cfg: Config, n_seeds: int, tag: str = "multiseed",
-                  strategies: Optional[Sequence[str]] = None,
-                  seeds: Optional[Sequence[int]] = None) -> Dict[str, object]:
+                  strategies: Sequence[str] | None = None,
+                  seeds: Sequence[int] | None = None) -> dict[str, Any]:
     """对多个种子各跑一次完整流程并聚合。
 
     注意：为控制耗时，多种子运行会**关闭敏感性分析与节奏模拟**
@@ -89,7 +90,7 @@ def run_multiseed(cfg: Config, n_seeds: int, tag: str = "multiseed",
         seeds = [int(cfg.seed) + 1000 * i for i in range(int(n_seeds))]
     seeds = list(seeds)
 
-    rows_per_seed: List[Dict[str, object]] = []
+    rows_per_seed: list[dict[str, Any]] = []
     for i, sd in enumerate(seeds):
         c = cfg.clone()
         c.seed = int(sd)

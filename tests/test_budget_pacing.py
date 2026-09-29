@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
-from baua.budget import (budget_units_for_ratio, sensitivity_over_noise,
-                         simulate_budget_allocation)
+from baua.budget import budget_units_for_ratio, sensitivity_over_noise, simulate_budget_allocation
 from baua.data import make_synthetic
-from baua.pacing import (assign_slots, compare_pacing_strategies, simulate_pacing,
-                         supply_profile, value_profile)
+from baua.pacing import (
+    assign_slots,
+    compare_pacing_strategies,
+    simulate_pacing,
+    supply_profile,
+    value_profile,
+)
 
 
 @pytest.fixture(scope="module")

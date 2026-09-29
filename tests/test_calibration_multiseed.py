@@ -5,9 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-
-from baua.calibration import (IsotonicCalibrator, compare_calibration_effect,
-                              threshold_policy_table)
+from baua.calibration import IsotonicCalibrator, compare_calibration_effect, threshold_policy_table
 from baua.multiseed import aggregate_multiseed
 
 
@@ -40,7 +38,6 @@ def test_isotonic_is_monotone_and_preserves_ranking(biased_scores):
     cal = IsotonicCalibrator().fit(p_raw, y)
     out = cal.transform(p_raw)
     order_raw = np.argsort(p_raw, kind="mergesort")
-    order_cal = np.argsort(out, kind="mergesort")
     # 单调映射下，原始分数不同的样本对顺序不应反转
     diff_pair = np.flatnonzero(np.diff(p_raw[order_raw]) > 0)
     a, b = order_raw[diff_pair], order_raw[diff_pair + 1]

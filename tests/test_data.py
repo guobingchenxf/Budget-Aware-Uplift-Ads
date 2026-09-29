@@ -6,9 +6,7 @@ import os
 
 import numpy as np
 import pytest
-
-from baua.data import (ALL_ARMS, build_analysis_frame, make_synthetic,
-                       validate_hillstrom)
+from baua.data import ALL_ARMS, build_analysis_frame, make_synthetic, validate_hillstrom
 
 HILLSTROM = os.path.join("data", "raw", "hillstrom_email_analytics.csv")
 
@@ -82,8 +80,7 @@ def test_hillstrom_treatment_has_positive_effect_on_visit():
 
 def test_feature_whitelist_has_no_outcome_columns():
     """回归测试：结果列绝不能进入特征集合（曾因此出现标签泄漏导致增量恒为 0）。"""
-    from baua.data import (FORBIDDEN_FEATURES, assert_no_leakage,
-                           hillstrom_feature_columns)
+    from baua.data import FORBIDDEN_FEATURES, assert_no_leakage, hillstrom_feature_columns
     cols = hillstrom_feature_columns()
     assert not (set(cols) & FORBIDDEN_FEATURES), "特征白名单混入结果列"
     for bad in ["visit", "conversion", "spend", "y", "treatment", "segment", "arm"]:

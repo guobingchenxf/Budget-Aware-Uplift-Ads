@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -45,20 +45,20 @@ class _LGBRegressor:
         self.cfg = cfg
         self.seed = seed
         self.objective = objective
-        self.model: Optional[lgb.LGBMRegressor] = None
+        self.model: lgb.LGBMRegressor | None = None
 
     def fit(self, X, y, categorical_feature=None):
-        params: Dict[str, object] = dict(
-            n_estimators=self.cfg.n_estimators,
-            learning_rate=self.cfg.learning_rate,
-            num_leaves=self.cfg.num_leaves,
-            min_child_samples=self.cfg.min_child_samples,
-            subsample=self.cfg.subsample,
-            colsample_bytree=self.cfg.colsample_bytree,
-            random_state=self.seed,
-            n_jobs=self.cfg.n_jobs,
-            verbose=-1,
-        )
+        params: dict[str, Any] = {
+            "n_estimators": self.cfg.n_estimators,
+            "learning_rate": self.cfg.learning_rate,
+            "num_leaves": self.cfg.num_leaves,
+            "min_child_samples": self.cfg.min_child_samples,
+            "subsample": self.cfg.subsample,
+            "colsample_bytree": self.cfg.colsample_bytree,
+            "random_state": self.seed,
+            "n_jobs": self.cfg.n_jobs,
+            "verbose": -1,
+        }
         if self.objective == "binary":
             self.model = lgb.LGBMClassifier(objective="binary", **params)
         else:
@@ -80,7 +80,7 @@ class UpliftModel:
     name = "base"
     score_kind = "uplift"
 
-    def fit(self, X: pd.DataFrame, t: np.ndarray, y: np.ndarray) -> "UpliftModel":
+    def fit(self, X: pd.DataFrame, t: np.ndarray, y: np.ndarray) -> UpliftModel:
         raise NotImplementedError
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
@@ -242,10 +242,7 @@ class XLearner(UpliftModel):
     def predict(self, X) -> np.ndarray:
         t1 = self._tau1.predict(X)
         t0 = self._tau0.predict(X)
-        if self.weight_mode == "balanced":
-            g = 0.5
-        else:
-            g = self.propensity_
+        g = 0.5 if self.weight_mode == "balanced" else self.propensity_
         return g * t0 + (1.0 - g) * t1
 
 

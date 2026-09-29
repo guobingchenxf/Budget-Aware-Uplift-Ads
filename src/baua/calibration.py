@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -34,11 +34,11 @@ class IsotonicCalibrator:
     保证推理时不会因超出训练区间而报错。
     """
 
-    model: object = None
+    model: Any = None
     n_fit: int = 0
     fitted: bool = False
 
-    def fit(self, raw: np.ndarray, y: np.ndarray) -> "IsotonicCalibrator":
+    def fit(self, raw: np.ndarray, y: np.ndarray) -> IsotonicCalibrator:
         from sklearn.isotonic import IsotonicRegression
 
         raw = np.asarray(raw, dtype=float)
@@ -87,7 +87,7 @@ class SigmoidCalibrator:
         q = np.clip(np.asarray(p, dtype=float), self.eps, 1.0 - self.eps)
         return np.log(q / (1.0 - q))
 
-    def fit(self, raw: np.ndarray, y: np.ndarray) -> "SigmoidCalibrator":
+    def fit(self, raw: np.ndarray, y: np.ndarray) -> SigmoidCalibrator:
         from sklearn.linear_model import LogisticRegression
 
         raw = np.asarray(raw, dtype=float)
@@ -115,10 +115,10 @@ class SigmoidCalibrator:
 
 
 def threshold_policy_table(
-    scores: Dict[str, np.ndarray],
+    scores: dict[str, np.ndarray],
     y: np.ndarray,
     t: np.ndarray,
-    thresholds: List[float],
+    thresholds: list[float],
 ) -> pd.DataFrame:
     """绝对阈值策略：选中 {i : score_i >= tau}，报告规模与该子集的增量收益。
 
@@ -128,7 +128,7 @@ def threshold_policy_table(
     y = np.asarray(y, dtype=float)
     t = np.asarray(t, dtype=float)
     n = len(y)
-    rows: List[Dict[str, object]] = []
+    rows: list[dict[str, Any]] = []
     for name, sc in scores.items():
         sc = np.asarray(sc, dtype=float)
         if len(sc) != n:

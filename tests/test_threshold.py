@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-
 from baua.data import make_synthetic
-from baua.threshold import (compare_at_budget, evaluate_policy_masks,
-                            threshold_mask, threshold_study)
+from baua.threshold import compare_at_budget, evaluate_policy_masks, threshold_mask, threshold_study
 
 
 def test_threshold_mask_boundary():

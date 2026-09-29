@@ -13,7 +13,7 @@ import argparse
 import json
 import os
 import sys
-from typing import Dict, List, Optional
+from typing import Any
 
 from . import __version__
 from .config import get_logger, load_config
@@ -21,8 +21,8 @@ from .config import get_logger, load_config
 logger = get_logger()
 
 
-def _parse_overrides(pairs: Optional[List[str]]) -> Dict[str, object]:
-    out: Dict[str, object] = {}
+def _parse_overrides(pairs: list[str] | None) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     for p in pairs or []:
         if "=" not in p:
             raise ValueError(f"--set 需要 key=value 形式，收到: {p}")
@@ -133,7 +133,6 @@ def cmd_confounding(args: argparse.Namespace) -> int:
     out = os.path.join(cfg.output.artifacts_dir, "confounding_study.csv")
     tab.to_csv(out, index=False)
 
-    import pandas as pd
     show = tab[["confounding", "policy", "truth", "naive_full", "ips", "dr",
                 "naive_full_bias", "ips_bias", "dr_bias",
                 "naive_qini_ratio_to_truth"]]
@@ -160,7 +159,6 @@ def cmd_threshold(args: argparse.Namespace) -> int:
     out = os.path.join(cfg.output.artifacts_dir, "threshold_vs_budget.csv")
     tab.to_csv(out, index=False)
 
-    import pandas as pd
     for src in ("model", "oracle"):
         sub = tab[tab.score_source == src]
         print(f"\n=== 阈值策略 vs top-k（score_source={src}, mode={args.mode}）===")
@@ -172,12 +170,54 @@ def cmd_threshold(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_headline(res: Dict[str, object]) -> None:
+def cmd_fit(args: argparse.Namespace) -> int:
+    """训练全部策略模型并保存到磁盘（供在线服务加载）。"""
+    from .metrics import qini_coefficient
+    from .persistence import ModelBundle, save_bundle
+    from .pipeline import fit_all_models, prepare_data
+
+    cfg = load_config(args.config, _parse_overrides(args.set))
+    if args.rows:
+        cfg.data.max_rows = int(args.rows)
+    data = prepare_data(cfg)
+    scores, _diagnostics, fitted = fit_all_models(data, cfg, keep_models=True)
+
+    y_ev = data.eval_["y"].values.astype(float)
+    t_ev = data.eval_["treatment"].values.astype(int)
+    metrics = {name: float(qini_coefficient(y_ev, t_ev, sc)) for name, sc in scores.items()}
+
+    bundle = ModelBundle(models=fitted, feature_cols=data.feature_cols,
+                         cat_cols=data.cat_cols, dataset=cfg.data.name,
+                         seed=cfg.seed, metrics=metrics)
+    path = save_bundle(bundle, os.path.join(cfg.output.artifacts_dir, "models", args.tag))
+
+    print("\n=== 已保存策略模型（Qini）===")
+    for k, v in sorted(metrics.items(), key=lambda kv: -kv[1]):
+        print(f"  {k:<18} {v:.4f}")
+    print(f"\n模型目录: {path}")
+    print(f"启动服务: .venv\\Scripts\\python.exe -m baua.cli serve --models {path}")
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    """启动在线推理服务（研究原型，无鉴权）。"""
+    from .serve import app_from_dir
+
+    app = app_from_dir(args.models)
+    print(f"\n启动服务: http://{args.host}:{args.port}  (模型: {args.models})")
+    print("接口: GET /health, GET /strategies, POST /score, POST /allocate")
+    print("提醒：这是研究原型，无鉴权/限流/在线特征，请勿用于生产。\n")
+    import uvicorn
+    uvicorn.run(app, host=args.host, port=int(args.port), log_level="info")
+    return 0
+
+
+def _print_headline(res: dict[str, Any]) -> None:
     print("\n=== 排序指标（真实数据上的观测估计）===")
     print(res["ranking"].to_string(index=False, float_format=lambda x: f"{x:.5f}"))
     print("\n=== 预算约束分配 ===")
     print(res["budget"].to_string(index=False, float_format=lambda x: f"{x:.5f}"))
-    print("\n=== 投放节奏模拟（grounded=%s）===" % res["pacing_grounded"])
+    print("\n=== 投放节奏模拟（grounded={}）===".format(res["pacing_grounded"]))
     print(res["pacing"].to_string(index=False, float_format=lambda x: f"{x:.4f}"))
     print("\n产物目录:", res["artifacts_dir"])
 
@@ -187,9 +227,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--version", action="version", version=f"baua {__version__}")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    for name, fn, needs_cfg in (("download", cmd_download, True),
-                                ("inspect-data", cmd_inspect, True),
-                                ("run", cmd_run, True)):
+    for name, fn in (("download", cmd_download),
+                     ("inspect-data", cmd_inspect),
+                     ("run", cmd_run)):
         sp = sub.add_parser(name)
         sp.add_argument("--config", default="configs/default.yaml")
         sp.add_argument("--set", nargs="*", help="覆盖配置，如 data.max_rows=20000")
@@ -226,10 +266,24 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--n", type=int, default=40000)
     sp.add_argument("--mode", default="conflicting", choices=["aligned", "conflicting"])
     sp.set_defaults(func=cmd_threshold)
+
+    sp = sub.add_parser("fit", help="训练并保存策略模型（供 serve 使用）")
+    sp.add_argument("--config", default="configs/default.yaml")
+    sp.add_argument("--set", nargs="*")
+    sp.add_argument("--rows", type=int, default=None, help="限制训练样本量")
+    sp.add_argument("--tag", default="served")
+    sp.set_defaults(func=cmd_fit)
+
+    sp = sub.add_parser("serve", help="启动在线推理服务（研究原型）")
+    sp.add_argument("--models", default="artifacts/models/served",
+                    help="由 fit 命令生成的模型目录")
+    sp.add_argument("--host", default="127.0.0.1")
+    sp.add_argument("--port", type=int, default=8000)
+    sp.set_defaults(func=cmd_serve)
     return p
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     return int(args.func(args) or 0)

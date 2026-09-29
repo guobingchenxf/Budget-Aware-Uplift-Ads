@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-from typing import Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -104,7 +104,7 @@ def load_hillstrom_raw(raw_dir: str, verify: bool = True) -> pd.DataFrame:
     return df
 
 
-def validate_hillstrom(df: pd.DataFrame, path: str = "") -> Dict[str, object]:
+def validate_hillstrom(df: pd.DataFrame, path: str = "") -> dict[str, Any]:
     """数据结构自检：字段、行数、类别分布、缺失、标签一致性。
 
     columns_ok 按**集合**判定（列序不影响建模）；
@@ -113,7 +113,7 @@ def validate_hillstrom(df: pd.DataFrame, path: str = "") -> Dict[str, object]:
     """
     required = set(DOCUMENTED_COLUMN_ORDER)
     actual = list(df.columns)
-    report: Dict[str, object] = {
+    report: dict[str, Any] = {
         "path": path,
         "n_rows": int(len(df)),
         "columns": actual,
@@ -183,7 +183,7 @@ def build_analysis_frame(
     return out.reset_index(drop=True)
 
 
-def feature_matrix(f: pd.DataFrame) -> Tuple[pd.DataFrame, list]:
+def feature_matrix(f: pd.DataFrame) -> tuple[pd.DataFrame, list]:
     """返回特征矩阵与类别列名。对类别列做显式 dtype 标注，交给 LightGBM 处理。"""
     x = f[FEATURE_COLUMNS + CATEGORICAL_COLUMNS].copy()
     for c in CATEGORICAL_COLUMNS:
@@ -202,7 +202,7 @@ def make_synthetic(
     uplift_strength: float = 2.0,
     mode: str = "aligned",
     confounding: float = 0.0,
-) -> Tuple[pd.DataFrame, np.ndarray]:
+) -> tuple[pd.DataFrame, np.ndarray]:
     """生成带有异质处理效应的半合成数据。
 
     生成机制（明确写出，便于审查）：
@@ -284,7 +284,7 @@ def load_criteo_manual(raw_dir: str) -> pd.DataFrame:
     return df
 
 
-def write_manifest(path: str, payload: Dict[str, object]) -> None:
+def write_manifest(path: str, payload: dict[str, Any]) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
