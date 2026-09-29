@@ -39,6 +39,19 @@
 流量供给受限时，均匀投放会**剩下 17% 的预算花不出去**，而反馈控制器能把预算追回来
 （Hillstrom：73.8 → 82.1；半合成：146.0 → 166.8）。
 
+6. **观测数据下的因果估计有边界**：把选择偏差从 0 加到 2.0 后，
+   朴素估计量的偏差**单调上升**（3.7 → 88.0，且恒为正——它把自然转化算成广告功劳）；
+   IPS/DR 在中等混杂下明显更好，但**强混杂下 IPS 反而比朴素更差**
+   （重叠性被破坏，倾向得分截断 4.6%）——这是识别性问题，不是实现问题。
+   **另一个实测发现**：教科书 Qini 估计量的口径是 $n_t\cdot\overline{\tau}$ 而不是
+   $|\text{S}|\cdot\overline{\tau}$，两者在等量随机化下相差约 2 倍，跨估计量比较必须先统一口径。
+
+7. **固定预算 top-k 在预算宽裕时是错的**：真实正增量用户占 49.75% 时，
+   预算放到 80% 会迫使 **38.2% 的预算投给负增量用户**，收益比阈值策略低 33%；
+   但预算紧张（2%）时 top-k 的效率反而高 3.6 倍。
+   **正确规则：预算 ≲20% 用 top-k 追效率；预算 ≳40% 改用"增量>0 才投"并主动不花完预算。**
+   参考：全投的收益几乎为零（正负相消）。
+
 ---
 
 ## ⚠️ 重要声明（请先读）
@@ -135,6 +148,10 @@ powershell -ExecutionPolicy Bypass -File scripts\run_all.ps1
     --set data.name=synthetic data.max_rows=40000 data.synthetic_mode=conflicting
 # 多种子重训 + 配对方差分解（约 8 分钟，回答"策略差异是否稳定"）
 .\.venv\Scripts\python.exe -m baua.cli multiseed --config configs/default.yaml --seeds 10 --tag multiseed_main
+# 选择偏差研究：naive vs IPS vs DR（约 2 分钟）
+.\.venv\Scripts\python.exe -m baua.cli confounding --n 40000 --levels 0 0.5 1.0 2.0
+# 阈值策略 vs 固定预算 top-k（约 1 分钟）
+.\.venv\Scripts\python.exe -m baua.cli threshold --n 40000 --mode conflicting
 ```
 
 ## 预期输出
@@ -164,6 +181,13 @@ powershell -ExecutionPolicy Bypass -File scripts\run_all.ps1
 | `multiseed_*_summary.csv` | **跨种子均值±标准差 + 配对差异的 t 区间与显著性** |
 | `multiseed_*_paired_diff.csv` | 逐种子的配对差值（同 seed 内减去 random） |
 | `multiseed_*_qini_summary.csv` | Qini 的跨种子稳定性 |
+
+`confounding` 与 `threshold` 命令的产物：
+
+| 文件 | 内容 |
+|---|---|
+| `artifacts/confounding_study.csv` | 各混杂强度 × 策略下 naive_full / IPS / DR 的估计值与偏差 |
+| `artifacts/threshold_vs_budget.csv` | 各预算比例下 top-k / 预测阈值 / oracle 阈值 / 全投的收益、效率与负增量占比 |
 
 ## 常见问题
 

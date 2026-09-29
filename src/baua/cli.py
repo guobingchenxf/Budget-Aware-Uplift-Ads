@@ -120,6 +120,58 @@ def cmd_multiseed(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_confounding(args: argparse.Namespace) -> int:
+    """选择偏差研究：naive / IPS / DR 三种估计量相对真值的偏差。"""
+    from .causal import confounding_study
+
+    cfg = load_config(args.config, _parse_overrides(args.set))
+    os.makedirs(cfg.output.artifacts_dir, exist_ok=True)
+    tab = confounding_study(n=args.n, seed=cfg.seed,
+                            confounding_levels=tuple(args.levels),
+                            budget_ratio=args.budget_ratio,
+                            mode=args.mode)
+    out = os.path.join(cfg.output.artifacts_dir, "confounding_study.csv")
+    tab.to_csv(out, index=False)
+
+    import pandas as pd
+    show = tab[["confounding", "policy", "truth", "naive_full", "ips", "dr",
+                "naive_full_bias", "ips_bias", "dr_bias",
+                "naive_qini_ratio_to_truth"]]
+    print("\n=== 选择偏差强度 vs 估计量偏差（真值 = 真实 CATE 之和）===")
+    print(show.to_string(index=False, float_format=lambda x: f"{x:.2f}"))
+    print("\n产物:", os.path.abspath(out))
+    print("说明：confounding=0 为随机实验；>0 时倾向得分依赖 x0。")
+    print("      naive_full = |S| * (mean_y_t - mean_y_c)，假设无混杂；IPS/DR 用于纠正；")
+    print("      naive_qini_ratio_to_truth 显示 Qini 式估计量与真值的比例（口径不同，约为 n_t/|S|）。")
+    return 0
+
+
+def cmd_threshold(args: argparse.Namespace) -> int:
+    """阈值策略 vs 固定预算 top-k。"""
+    from .threshold import threshold_study
+
+    cfg = load_config(args.config, _parse_overrides(args.set))
+    os.makedirs(cfg.output.artifacts_dir, exist_ok=True)
+    frames = []
+    for src in ("model", "oracle"):
+        frames.append(threshold_study(n=args.n, seed=cfg.seed, mode=args.mode,
+                                      score_source=src))
+    tab = __import__("pandas").concat(frames, ignore_index=True)
+    out = os.path.join(cfg.output.artifacts_dir, "threshold_vs_budget.csv")
+    tab.to_csv(out, index=False)
+
+    import pandas as pd
+    for src in ("model", "oracle"):
+        sub = tab[tab.score_source == src]
+        print(f"\n=== 阈值策略 vs top-k（score_source={src}, mode={args.mode}）===")
+        cols = ["budget_ratio", "policy", "n_selected", "selected_fraction",
+                "true_gain", "true_gain_per_cost", "neg_uplift_share"]
+        print(sub[cols].to_string(index=False, float_format=lambda x: f"{x:.4f}"))
+    print("\n产物:", os.path.abspath(out))
+    print("说明：neg_uplift_share = 选中集合中真实增量为负的比例。")
+    return 0
+
+
 def _print_headline(res: Dict[str, object]) -> None:
     print("\n=== 排序指标（真实数据上的观测估计）===")
     print(res["ranking"].to_string(index=False, float_format=lambda x: f"{x:.5f}"))
@@ -158,6 +210,22 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--tag", default="multiseed")
     sp.add_argument("--artifacts", default=None)
     sp.set_defaults(func=cmd_multiseed)
+
+    sp = sub.add_parser("confounding", help="选择偏差研究：naive vs IPS vs DR")
+    sp.add_argument("--config", default="configs/default.yaml")
+    sp.add_argument("--set", nargs="*")
+    sp.add_argument("--n", type=int, default=40000)
+    sp.add_argument("--levels", type=float, nargs="*", default=[0.0, 0.5, 1.0, 2.0])
+    sp.add_argument("--budget-ratio", type=float, default=0.05)
+    sp.add_argument("--mode", default="conflicting", choices=["aligned", "conflicting"])
+    sp.set_defaults(func=cmd_confounding)
+
+    sp = sub.add_parser("threshold", help="阈值策略 vs 固定预算 top-k")
+    sp.add_argument("--config", default="configs/default.yaml")
+    sp.add_argument("--set", nargs="*")
+    sp.add_argument("--n", type=int, default=40000)
+    sp.add_argument("--mode", default="conflicting", choices=["aligned", "conflicting"])
+    sp.set_defaults(func=cmd_threshold)
     return p
 
 

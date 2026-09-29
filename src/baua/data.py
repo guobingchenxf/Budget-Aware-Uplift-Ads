@@ -201,6 +201,7 @@ def make_synthetic(
     base_rate: float = 0.10,
     uplift_strength: float = 2.0,
     mode: str = "aligned",
+    confounding: float = 0.0,
 ) -> Tuple[pd.DataFrame, np.ndarray]:
     """生成带有异质处理效应的半合成数据。
 
@@ -225,7 +226,11 @@ def make_synthetic(
 
     rng = np.random.default_rng(seed)
     x = rng.normal(size=(n, n_features))
-    t = rng.integers(0, 2, size=n)  # 完全随机化
+
+    # 处理分配：confounding=0 时为完全随机实验；>0 时倾向得分依赖 x0，
+    # 制造**选择偏差**（观测数据的典型情形），用于检验 IPS/DR 能否纠正。
+    e = 1.0 / (1.0 + np.exp(-float(confounding) * x[:, 0]))
+    t = (rng.random(n) < e).astype(int)
 
     base_logit = float(np.log(base_rate / (1 - base_rate)))
     if mode == "conflicting":
@@ -248,6 +253,8 @@ def make_synthetic(
     df["treatment"] = t
     df["y"] = y
     df["arm"] = np.where(t == 1, "Treated", "Control")
+    # 真实倾向得分（仅半合成数据可知），供 IPS/DR 研究作为上界参照
+    df["propensity_true"] = e
     return df, true_cate
 
 
