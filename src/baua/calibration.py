@@ -65,6 +65,55 @@ class IsotonicCalibrator:
         return np.asarray(self.model.predict(raw), dtype=float)
 
 
+@dataclass
+class SigmoidCalibrator:
+    """Platt 校准：对分数的 logit 做一次线性变换，再过一个 sigmoid。
+
+        p_cal = sigma(a * logit(p_raw) + b)
+
+    与 isotonic 的关键差异（本项目的实测驱动，见实验报告 §4.6b）：
+      - isotonic 是**分段常数**，会产生大量并列，破坏 top-k 排序；
+      - Platt 是**严格单调**（当 a > 0 时），理论上**完全保留排序**，且不引入并列。
+    因此它是"既要校准数值、又要保留排序分辨率"场景的正确选择。
+    """
+
+    coef_: float = 1.0
+    intercept_: float = 0.0
+    fitted: bool = False
+    n_fit: int = 0
+    eps: float = 1e-6
+
+    def _logit(self, p: np.ndarray) -> np.ndarray:
+        q = np.clip(np.asarray(p, dtype=float), self.eps, 1.0 - self.eps)
+        return np.log(q / (1.0 - q))
+
+    def fit(self, raw: np.ndarray, y: np.ndarray) -> "SigmoidCalibrator":
+        from sklearn.linear_model import LogisticRegression
+
+        raw = np.asarray(raw, dtype=float)
+        y = np.asarray(y, dtype=float)
+        if len(raw) != len(y):
+            raise ValueError("raw 与 y 长度不一致")
+        self.n_fit = int(len(y))
+        if len(np.unique(y)) < 2:
+            self.fitted = False
+            return self
+        z = self._logit(raw).reshape(-1, 1)
+        # C 取较大但有限值：接近最大似然，同时避免完全可分时系数发散
+        lr = LogisticRegression(C=1e3, solver="lbfgs", max_iter=1000)
+        lr.fit(z, y)
+        self.coef_ = float(lr.coef_[0, 0])
+        self.intercept_ = float(lr.intercept_[0])
+        self.fitted = True
+        return self
+
+    def transform(self, raw: np.ndarray) -> np.ndarray:
+        if not self.fitted:
+            return np.clip(np.asarray(raw, dtype=float), 0.0, 1.0)
+        z = self.coef_ * self._logit(raw) + self.intercept_
+        return 1.0 / (1.0 + np.exp(-np.clip(z, -30.0, 30.0)))
+
+
 def threshold_policy_table(
     scores: Dict[str, np.ndarray],
     y: np.ndarray,

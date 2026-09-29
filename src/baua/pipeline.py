@@ -183,8 +183,8 @@ def _calibration_study(data: PreparedData, cfg: Config) -> Dict[str, object]:
       这个函数把"不该有差异"也实测一遍（可被证伪）；
     - 再验证"敏感项"：绝对阈值策略（"预测率低于 X 不投"）对校准高度敏感。
     """
-    from .calibration import (IsotonicCalibrator, compare_calibration_effect,
-                              threshold_policy_table)
+    from .calibration import (IsotonicCalibrator, SigmoidCalibrator,
+                              compare_calibration_effect, threshold_policy_table)
     from .metrics import calibration_report
     from .models import ResponseModel
 
@@ -209,33 +209,48 @@ def _calibration_study(data: PreparedData, cfg: Config) -> Dict[str, object]:
     model = ResponseModel(cfg.model, cfg.seed)
     model.fit(fit_part[feats], np.ones(len(fit_part)), fit_part["y"].values)
     raw_val = np.asarray(model.predict(val_part[feats]), dtype=float)
-    calibrator = IsotonicCalibrator().fit(raw_val, val_part["y"].values)
+    y_val = val_part["y"].values
+
+    calibrators = {"isotonic": IsotonicCalibrator(), "platt": SigmoidCalibrator()}
+    fitted = {name: cal.fit(raw_val, y_val) for name, cal in calibrators.items()}
 
     raw_ev = np.asarray(model.predict(data.eval_[feats]), dtype=float)
-    cal_ev = calibrator.transform(raw_ev)
-
     m = t_ev == 1
     rep_raw = calibration_report(y_ev[m], raw_ev[m])
-    rep_cal = calibration_report(y_ev[m], cal_ev[m])
 
-    invariance = compare_calibration_effect(raw_ev, cal_ev, y_ev, t_ev)
-    thresholds = threshold_policy_table(
-        {"response_raw": raw_ev, "response_calibrated": cal_ev},
-        y_ev, t_ev, cfg.experiment.thresholds)
-
-    info = {
+    score_dict: Dict[str, np.ndarray] = {"response_raw": raw_ev}
+    info: Dict[str, object] = {
         "n_fit": int(len(fit_part)),
         "n_val": int(len(val_part)),
-        "calibrator_fitted": bool(calibrator.fitted),
         "ece_before": float(rep_raw["ece"]),
-        "ece_after": float(rep_cal["ece"]),
         "mean_abs_bin_gap_before": float(rep_raw["mean_abs_bin_gap"]),
-        "mean_abs_bin_gap_after": float(rep_cal["mean_abs_bin_gap"]),
         "note": ("校准器在训练集内部切出的独立验证集上拟合（仅处理组样本）；"
-                 "top-k 排序对单调变换不变，故增量收益不应改变——已实测验证"),
+                 "isotonic 为分段常数映射会引入并列，Platt 为严格单调映射"),
+        "methods": {},
     }
+
+    invariance_frames = []
+    for name, cal in fitted.items():
+        sc = cal.transform(raw_ev)
+        score_dict[f"response_{name}"] = sc
+        rep = calibration_report(y_ev[m], sc[m])
+        inv = compare_calibration_effect(raw_ev, sc, y_ev, t_ev)
+        inv.insert(0, "calibrator", name)
+        invariance_frames.append(inv)
+        info["methods"][name] = {
+            "fitted": bool(cal.fitted),
+            "ece_after": float(rep["ece"]),
+            "mean_abs_bin_gap_after": float(rep["mean_abs_bin_gap"]),
+            "n_unique_eval": int(len(np.unique(sc))),
+            "n_unique_raw_eval": int(len(np.unique(raw_ev))),
+            "ties_introduced": int(len(np.unique(raw_ev)) - len(np.unique(sc))),
+            "coef": float(getattr(cal, "coef_", float("nan"))),
+        }
+
+    invariance = pd.concat(invariance_frames, ignore_index=True)
+    thresholds = threshold_policy_table(score_dict, y_ev, t_ev, cfg.experiment.thresholds)
     return {"info": info, "invariance": invariance, "thresholds": thresholds,
-            "bins_before": rep_raw["bins"], "bins_after": rep_cal["bins"]}
+            "bins_before": rep_raw["bins"], "score_dict": score_dict}
 
 
 # --------------------------------------------------------------------------
@@ -415,9 +430,8 @@ def run_experiment(cfg: Config, tag: str = "default") -> Dict[str, object]:
         json.dump(summary, f, ensure_ascii=False, indent=2)
     calib_out = dict(calib)
     if calib_study is not None:
-        calib_out["isotonic_study"] = calib_study["info"]
+        calib_out["calibration_study"] = calib_study["info"]
         calib_out["bins_before"] = calib_study["bins_before"]
-        calib_out["bins_after"] = calib_study["bins_after"]
     with open(os.path.join(out_dir, "calibration.json"), "w", encoding="utf-8") as f:
         json.dump(calib_out, f, ensure_ascii=False, indent=2)
 

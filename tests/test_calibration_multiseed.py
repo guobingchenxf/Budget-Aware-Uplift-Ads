@@ -59,6 +59,53 @@ def test_isotonic_single_class_degrades_gracefully():
     assert np.allclose(cal.transform(np.array([0.2])), np.array([0.2]))
 
 
+def test_platt_reduces_calibration_error(biased_scores):
+    from baua.calibration import SigmoidCalibrator
+    from baua.metrics import calibration_report
+    p_raw, y, _ = biased_scores
+    cut = len(y) // 2
+    cal = SigmoidCalibrator().fit(p_raw[:cut], y[:cut])
+    assert cal.fitted and cal.n_fit == cut
+    before = calibration_report(y[cut:], p_raw[cut:])["ece"]
+    after = calibration_report(y[cut:], cal.transform(p_raw[cut:]))["ece"]
+    assert after < before, f"Platt 校准后 ECE 应下降: before={before}, after={after}"
+    assert cal.coef_ > 0, "斜率应为正，否则排序被反转"
+
+
+def test_platt_preserves_ranking_exactly(biased_scores):
+    """核心差异（本项目的实测驱动结论）：Platt 是严格单调映射，
+    应当**完全保留 top-k 排序且不引入任何并列**——这正是 isotonic 做不到的。"""
+    from baua.calibration import SigmoidCalibrator
+    p_raw, y, _ = biased_scores
+    cal = SigmoidCalibrator().fit(p_raw, y)
+    out = cal.transform(p_raw)
+
+    assert len(np.unique(out)) == len(np.unique(p_raw)), "Platt 不应引入并列"
+
+    tab = compare_calibration_effect(p_raw, out, y, np.ones(len(y), dtype=int))
+    assert (tab["ties_introduced"] == 0).all()
+    assert (tab["overlap_ratio"] == 1.0).all(), (
+        f"严格单调映射下 top-k 必须完全一致: {tab['overlap_ratio'].tolist()}")
+
+
+def test_isotonic_vs_platt_resolution_tradeoff(biased_scores):
+    """对比实验：isotonic 降 ECE 更多但丢分辨率；Platt 保分辨率。"""
+    from baua.calibration import IsotonicCalibrator, SigmoidCalibrator
+    from baua.metrics import calibration_report
+    p_raw, y, _ = biased_scores
+    cut = len(y) // 2
+    iso = IsotonicCalibrator().fit(p_raw[:cut], y[:cut])
+    platt = SigmoidCalibrator().fit(p_raw[:cut], y[:cut])
+    s_iso, s_pl, raw = iso.transform(p_raw[cut:]), platt.transform(p_raw[cut:]), p_raw[cut:]
+
+    assert calibration_report(y[cut:], s_iso)["ece"] < 0.02
+    assert calibration_report(y[cut:], s_pl)["ece"] < 0.05
+    # 关键差异：分辨率
+    assert len(np.unique(s_iso)) < len(np.unique(raw)), "isotonic 应压缩分辨率"
+    assert len(np.unique(s_pl)) == len(np.unique(raw)), "Platt 应保留分辨率"
+    assert len(np.unique(s_pl)) > len(np.unique(s_iso))
+
+
 def test_calibration_introduces_ties_and_may_change_topk():
     """实测结论：单调度只保证"不反转顺序"，但**会引入并列**。
 
