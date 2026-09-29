@@ -1,0 +1,207 @@
+# Budget-Aware Uplift Ads
+### 预算约束下的增量转化广告排序与投放节奏优化（研究型原型）
+
+---
+
+## 30 秒说明
+
+**研究问题**：广告预算有限时，按"预测转化概率"选人，还是按"广告带来的**增量**转化"选人，
+哪种策略能带来更高的增量收益？模型误差、概率校准与预算消耗速度会如何影响结论？
+
+**核心结论（本机实测，非编造）**：
+
+| 数据/场景 | 响应模型（按预测转化率） | Uplift 模型（按增量） | 随机 |
+|---|---|---|---|
+| 半合成·aligned（高基线=高增量） | 109.9（3.52×随机） | 91～102（2.9～3.3×） | 31.2 |
+| 半合成·conflicting（高基线=低增量） | **10.5** | **21～29** | −11.3 |
+| Hillstrom 真实数据（5% 预算） | 7.6～9.7 | 0.8～22.4 | 18.4 |
+
+1. **当"高转化概率"与"高增量"方向一致时，响应模型几乎不输**（aligned 场景 3.52× vs 3.28×）——
+   这是"uplift 建模没用"这类说法流行的原因；
+2. **两者方向相反时，响应模型会系统性选错人**（conflicting 场景 10.5 vs 21～29，且随机策略为 −11.3）；
+3. **在真实公开数据 Hillstrom 上，5% 预算下所有策略与随机的差异都不显著**——
+   自助法 95% 置信区间全部跨越 0。按观测到的方差反推，要分辨 20% 的策略提升需要约 **136 万**评估样本，
+   而 Hillstrom 全量只有 6.4 万。
+   **"没有显著差异"本身就是本研究最重要的结论之一，我们不把它包装成"方法有效"。**
+
+**投放节奏（模拟）**：把预算前置花掉是最大的浪费（仅为均匀投放的 25～28%）；
+流量供给受限时，均匀投放会**剩下 17% 的预算花不出去**，而反馈控制器能把预算追回来
+（Hillstrom：73.8 → 82.1；半合成：146.0 → 166.8）。
+
+---
+
+## ⚠️ 重要声明（请先读）
+
+1. **这是研究型原型，不是生产系统。** 没有复现任何公司的内部系统，
+   也没有做线上 A/B 实验，不宣称任何业务提升。
+2. **所有成本、预算、时段、价值系数均为模拟变量。** 公开数据集（Hillstrom）不含广告成本、
+   预算或竞价字段；`cost_per_treatment`、`budget_ratio`、`peak_slot_boost` 等全部是模拟假设。
+3. **数据集的干预是"营销邮件触达"，不是广告曝光。** 它提供的是"随机干预 + 二值结果"的
+   公开基准，用于研究预算约束下的增量排序问题，**不等价于真实广告投放**。
+4. **Qini/AUUC 是排序指标，不是收益指标。** 本项目的实测显示：
+   conflicting 场景下所有策略的归一化 Qini 均为负值，而预算分配口径下 uplift 模型明显胜出——
+   排序指标在"总效应接近零"时会失效（与 UpliftBench 2026 的警告一致）。
+
+---
+
+## 环境要求
+
+| 项目 | 要求 |
+|---|---|
+| Python | 3.9+（本机实测 3.10.1） |
+| 依赖 | 见 `requirements.txt`（**必须 numpy<2**，见下方"已知坑"） |
+| GPU | **不需要**。全部实验在本机 8 核 CPU 上跑完 |
+| 内存 | 峰值 < 1GB（6.4 万行数据，无全量加载问题） |
+| 磁盘 | 约 50MB（数据 4MB + 产物） |
+| 系统 | Windows（实测）/ Linux / WSL |
+
+### 已知坑：不要用全局 Python 环境
+
+本机全局环境是 **numpy 2.2.3，已破坏 scipy/scikit-learn**（ABI 不兼容，
+导入 sklearn 直接抛 `A module that was compiled using NumPy 1.x cannot be run in NumPy 2.2.3`）。
+本项目锁定 `numpy==1.26.4`，**必须使用项目自带 `.venv`**。
+
+---
+
+## 安装
+
+```powershell
+# Windows PowerShell（在项目根目录）
+py -3.10 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -e .
+```
+
+```bash
+# Linux / WSL / Git Bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m pip install -e .
+```
+
+## 数据准备（不会自动下载）
+
+```powershell
+.\.venv\Scripts\python.exe -m baua.cli download      # 下载 Hillstrom 并校验 SHA256
+.\.venv\Scripts\python.exe -m baua.cli inspect-data  # 打印数据自检报告
+```
+
+- 数据来源：**Hillstrom MineThatData E-Mail Analytics And Data Mining Challenge (2008)**
+  （Kevin Hillstrom, MineThatData）
+- 下载地址：`http://www.minethatdata.com/Kevin_Hillstrom_MineThatData_E-MailAnalytics_DataMiningChallenge_2008.03.20.csv`
+- 规模：**64,000 行 × 12 列**，实测文件大小 **3,964,977 字节**
+- SHA256（实测）：`0e5893329d8b93cefecc571777672028290ab69865718020c78c7284f291aece`
+- 许可与使用条件：该数据集由作者公开用于教学与研究。**发布衍生成果时请引用原作者与挑战赛名称**；
+  商用前请自行确认授权范围（本项目未核验其明确的书面许可条款，标注为"未核验"）。
+
+---
+
+## 最短可运行命令（smoke test，约 20 秒）
+
+```powershell
+.\.venv\Scripts\python.exe -m baua.cli smoke
+```
+
+跑的是半合成小样本（4000 行、60 棵树），用于验证"数据 → 建模 → 指标 → 预算模拟 → 节奏模拟 → 产物"
+整条链路。**结果不用于任何结论。**
+
+## 完整实验命令
+
+```powershell
+# 全部实验（含测试、自检、三个数据集场景），约 5 分钟
+powershell -ExecutionPolicy Bypass -File scripts\run_all.ps1
+```
+
+```powershell
+# 或分步执行
+.\.venv\Scripts\python.exe -m pytest tests -q                                  # 单元测试（31 项）
+.\.venv\Scripts\python.exe -m baua.cli run --config configs/default.yaml --tag main
+.\.venv\Scripts\python.exe -m baua.cli run --config configs/default.yaml --tag synthetic `
+    --set data.name=synthetic data.max_rows=40000
+.\.venv\Scripts\python.exe -m baua.cli run --config configs/default.yaml --tag synthetic_conflicting `
+    --set data.name=synthetic data.max_rows=40000 data.synthetic_mode=conflicting
+```
+
+## 预期输出
+
+全部产物落在 `artifacts/<数据集>_<tag>/`：
+
+| 文件 | 内容 |
+|---|---|
+| `summary.json` | 环境、配置快照、数据概况、模型诊断（复现凭据） |
+| `ranking_metrics.csv` | 各策略的 Qini / AUUC |
+| `budget_allocation.csv` | 预算约束分配结果（增量收益、消耗、单位成本收益） |
+| `budget_bootstrap_ci.csv` | **增量收益的 95% 自助法区间**（判断差异是否只是噪声） |
+| `sensitivity_budget.csv` | 预算比例 1%/2%/5%/10%/20% 的对比 |
+| `sensitivity_noise.csv` | 分数加噪 0～2σ 的鲁棒性 |
+| `sensitivity_sample_size.csv` | 训练样本 5k/20k/全部 的影响 |
+| `pacing_strategies.csv` + `pacing_slots_*.csv` | 节奏策略对比与逐时段明细（含 relaxed/constrained 两个供给场景） |
+| `calibration.json` | 响应模型校准报告（ECE）与半合成 CATE 校准 |
+| `qini_curves.png`、`budget_sensitivity.png`、`pacing_cum_spend_*.png` | 图 |
+
+## 常见问题
+
+**Q：为什么 `python -m baua.cli` 找不到模块？**
+A：没有安装包。执行 `.\.venv\Scripts\python.exe -m pip install -e .`。
+
+**Q：为什么 sklearn 导入报 NumPy 版本错误？**
+A：用到了全局 Python。请用 `.venv\Scripts\python.exe`。
+
+**Q：能下载 Criteo Uplift 数据集吗？**
+A：官方链接已核验但**本机不可达**（返回 404 / 连接超时），因此不作为默认数据源。
+若你已手动下载，可用 `baua.data.load_criteo_manual()` 读取。详见 `docs/论文与仓库调研.md`。
+
+**Q：结果怎么复现？**
+A：所有随机性由 `configs/*.yaml` 的 `seed` 控制；`summary.json` 记录了完整的配置快照与运行环境。
+已验证：同种子跑两次 smoke，指标完全一致。
+
+## 限制（务必阅读）
+
+- 数据集是**邮件营销**随机实验，不是广告竞价数据，无成本/预算/竞价字段；
+- 预算与节奏均为**模拟**，由此得到的"收益"是模拟核算值；
+- 未做倾向性加权/工具变量，因为数据本身是随机实验（该假设已核验）；
+- 未实现概率校准的后处理（isotonic 已列入配置但**未纳入本轮正式实验**）；
+- 未做多种子重训的方差分解（自助法只覆盖评估集抽样不确定性）；
+- 时长与硬件限制：本次全部工作在单机 CPU、约 2.5 小时内完成，未做超参搜索。
+
+## 文档索引
+
+- `docs/项目设计.md` —— 问题定义、数据字段、方法选择理由、模拟假设、评估协议
+- `docs/论文与仓库调研.md` —— 已核验的论文/数据集/仓库，含 URL、许可、借鉴点与未核验项
+- `docs/实验报告.md` —— 真实运行命令、种子、实测指标、失败记录与限制
+- `docs/面试讲解.md` —— 3 分钟讲稿、技术追问、因果假设、局限
+- `docs/后续迭代路线.md` —— 4 小时窗口之外值得做的事（按优先级）
+
+## 许可
+
+本项目代码采用 MIT 许可（见 `LICENSE`，**其中版权人姓名仍是 TODO，发布前请替换**）。
+数据集版权归原作者，使用前请遵守其条款。
+
+## 发布到 GitHub 前的检查清单（需人工审核）
+
+本仓库**已在本地初始化 Git 并提交，但没有配置任何远端，也不会自动推送**。发布前请人工确认：
+
+```powershell
+# 1) 确认没有任何数据/模型/密钥被纳入版本控制
+git status
+git ls-files | Select-String -Pattern "\.(csv|gz|parquet|pkl|joblib)$"   # 应无输出
+git ls-files | Select-String -Pattern "(\.env|secret|credential|\.key)"   # 应无输出
+
+# 2) 替换占位信息
+#    - LICENSE 中的版权人姓名
+#    - pyproject.toml 中的 authors
+#    - README 顶部的仓库地址（如有）
+
+# 3) 逐条核验 docs/论文与仓库调研.md 中标记为 ❓未核验 的引用
+
+# 4) 确认没有把模拟结果表述为线上效果（README/文档/讲稿三处自查）
+
+# 5) 确认远端后手动推送（本仓库不做自动推送）
+git remote add origin <你的仓库地址>     # 需人工确认地址正确
+git push -u origin main                  # 人工执行
+```
+
+**切勿提交**：`data/`、`artifacts/`、`.venv/`、任何密钥或凭据。这些已在 `.gitignore` 中排除，
+但请在 `git add` 后再次用 `git status` 确认。

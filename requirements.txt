@@ -1,0 +1,14 @@
+# Budget-Aware Uplift Ads — pinned runtime dependencies
+# Target: Python 3.10, CPU only (no GPU required)
+#
+# 重要：本机全局环境为 numpy 2.2.3，已破坏 scipy/scikit-learn（编译期 ABI 不兼容）。
+# 因此本项目必须使用自带 .venv，并锁定 numpy<2。
+numpy==1.26.4
+pandas==2.2.2
+scipy==1.11.4
+scikit-learn==1.4.2
+lightgbm==4.3.0
+matplotlib==3.8.4
+pyarrow==16.1.0
+PyYAML==6.0.1
+pytest==8.2.0

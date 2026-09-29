@@ -1,0 +1,78 @@
+# Budget-Aware Uplift Ads — 默认配置
+# 所有实验参数集中在此，命令行可覆盖。修改本文件即可复现不同规模的实验。
+
+seed: 20260929
+
+data:
+  # 主数据集：Hillstrom (MineThatData E-Mail Analytics Challenge, 2008)
+  # 官方来源与字段已在 docs/论文与仓库调研.md 中核验
+  name: hillstrom
+  raw_dir: data/raw
+  processed_dir: data/processed
+  # 训练样本上限（CPU 友好）。null 表示使用全部样本。
+  max_rows: null
+  # 处理组定义：any_email = Mens/Womens 合并为处理组，No E-Mail 为对照组
+  treatment_definition: any_email
+  # 主目标 outcome：visit / conversion / spend
+  primary_outcome: visit
+  # 训练/测试划分比例（按 treatment × outcome 分层）
+  test_size: 0.3
+  # 为了保证策略评估的稳定性，测试集再拆成"训练内验证"与"策略评估"两部分
+  eval_size: 0.5
+
+model:
+  # 树模型统一使用 LightGBM；CPU 训练，限制线程数以便在 4 核云主机上复现
+  n_estimators: 400
+  learning_rate: 0.05
+  num_leaves: 31
+  min_child_samples: 40
+  subsample: 0.9
+  colsample_bytree: 0.9
+  n_jobs: 2
+  # 概率校准方法：none / isotonic / sigmoid
+  calibration: none
+
+budget:
+  # ---- 以下均为【模拟假设】，公开数据集不含真实广告成本/预算字段 ----
+  # 单次投放成本（模拟"一次邮件触达成本"），单位与 outcome 无关
+  cost_per_treatment: 1.0
+  # 预算占总人群可触达成本的比例（0.05 = 只有 5% 的用户能被触达）
+  budget_ratio: 0.05
+  # 参与对比的策略
+  strategies:
+    - random
+    - response
+    - s_learner
+    - t_learner
+    - x_learner
+    - class_transform
+
+pacing:
+  # 分时段投放模拟（对应"投放节奏"研究问题）
+  n_slots: 24
+  # 各时段的价值系数：模拟"黄金时段意图更强"。默认用一个平滑的日内曲线。
+  prime_slot_boost: 1.8
+  # pacing 控制器阻尼系数（与第三讲的 η 对应）
+  damping: 0.3
+  strategies:
+    - no_pacing
+    - uniform
+    - feedback
+    # 模拟上界：已知各时段真实价值系数，优先在高价值时段花钱。
+    # 现实中不可实现（未来时段价值未知），仅用于量化"节奏优化"的空间。
+    - oracle_value_aware
+
+sensitivity:
+  budget_ratios: [0.01, 0.02, 0.05, 0.10, 0.20]
+  score_noise_levels: [0.0, 0.25, 0.5, 1.0, 2.0]
+  calibration_methods: [none, isotonic]
+  sample_sizes: [5000, 20000, 64000]
+
+bootstrap:
+  # 对被选中集合的增量收益做自助法区间估计：用于判断策略差异是否只是噪声。
+  n_boot: 300
+  alpha: 0.05
+
+output:
+  artifacts_dir: artifacts
+  log_level: INFO

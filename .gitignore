@@ -1,0 +1,37 @@
+# ---- 数据与产物（不入库）----
+data/raw/
+data/processed/
+data/cache/
+artifacts/
+*.csv
+*.csv.gz
+*.parquet
+*.joblib
+*.pkl
+*.model
+
+# ---- 日志与临时文件 ----
+*.log
+logs/
+_smoke_out/
+tmp/
+.vscode/
+.idea/
+
+# ---- 环境 ----
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ---- 密钥（绝不入库）----
+.env
+*.key
+credentials.json

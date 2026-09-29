@@ -1,0 +1,52 @@
+# 冒烟测试配置：只用于验证端到端链路能否跑通，结果不用于任何结论。
+seed: 20260929
+
+data:
+  name: synthetic
+  raw_dir: data/raw
+  processed_dir: data/processed
+  max_rows: 4000
+  treatment_definition: any_email
+  primary_outcome: visit
+  test_size: 0.3
+  eval_size: 0.5
+
+model:
+  n_estimators: 60
+  learning_rate: 0.1
+  num_leaves: 15
+  min_child_samples: 20
+  subsample: 0.9
+  colsample_bytree: 0.9
+  n_jobs: 2
+  calibration: none
+
+budget:
+  cost_per_treatment: 1.0
+  budget_ratio: 0.1
+  strategies:
+    - random
+    - response
+    - s_learner
+    - t_learner
+    - x_learner
+    - class_transform
+
+pacing:
+  n_slots: 12
+  prime_slot_boost: 1.8
+  damping: 0.3
+  strategies:
+    - no_pacing
+    - uniform
+    - feedback
+
+sensitivity:
+  budget_ratios: [0.05, 0.10]
+  score_noise_levels: [0.0, 1.0]
+  calibration_methods: [none]
+  sample_sizes: [2000, 4000]
+
+output:
+  artifacts_dir: artifacts
+  log_level: INFO
