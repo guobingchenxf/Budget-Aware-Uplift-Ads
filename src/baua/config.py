@@ -92,6 +92,19 @@ class BootstrapConfig:
 
 
 @dataclass
+class ExperimentConfig:
+    """实验流程开关与校准分析参数。"""
+    run_sensitivity: bool = True
+    run_pacing: bool = True
+    run_calibration: bool = True
+    # 校准器必须在独立验证集上拟合；该比例从**训练集内部**再切分
+    calibration_val_size: float = 0.2
+    # 绝对阈值策略的业务阈值列表（"预测转化率低于 X 不投"）
+    thresholds: List[float] = field(default_factory=lambda: [0.05, 0.08, 0.10, 0.15])
+    n_seeds: int = 10
+
+
+@dataclass
 class OutputConfig:
     artifacts_dir: str = "artifacts"
     log_level: str = "INFO"
@@ -106,6 +119,7 @@ class Config:
     pacing: PacingConfig = field(default_factory=PacingConfig)
     sensitivity: SensitivityConfig = field(default_factory=SensitivityConfig)
     bootstrap: BootstrapConfig = field(default_factory=BootstrapConfig)
+    experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     output: OutputConfig = field(default_factory=OutputConfig)
     # 记录配置文件来源，便于复现
     source_path: str = ""
@@ -119,6 +133,7 @@ class Config:
             "pacing": vars(self.pacing),
             "sensitivity": vars(self.sensitivity),
             "bootstrap": vars(self.bootstrap),
+            "experiment": vars(self.experiment),
             "output": vars(self.output),
             "source_path": self.source_path,
         }
@@ -147,6 +162,7 @@ def load_config(path: str, overrides: Optional[Dict[str, Any]] = None) -> Config
         pacing=_build(PacingConfig, raw.get("pacing")),
         sensitivity=_build(SensitivityConfig, raw.get("sensitivity")),
         bootstrap=_build(BootstrapConfig, raw.get("bootstrap")),
+        experiment=_build(ExperimentConfig, raw.get("experiment")),
         output=_build(OutputConfig, raw.get("output")),
         source_path=os.path.abspath(path),
     )

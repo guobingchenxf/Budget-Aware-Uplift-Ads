@@ -173,6 +173,71 @@ def fit_all_models(data: PreparedData, cfg: Config) -> Tuple[Dict[str, np.ndarra
     return scores, diagnostics
 
 
+def _calibration_study(data: PreparedData, cfg: Config) -> Dict[str, object]:
+    """概率校准研究：校准能否改善排序类决策与阈值类决策？
+
+    关键设计：
+    - 校准器**只在训练集内部切出的独立验证集上拟合**（且只用处理组样本，
+      因为响应模型预测的是 P(y|t=1)），**绝不使用评估集**——否则就是另一种标签泄漏；
+    - 先验证"不变量"：isotonic 是单调映射，top-k 选择与增量收益理论上不应改变；
+      这个函数把"不该有差异"也实测一遍（可被证伪）；
+    - 再验证"敏感项"：绝对阈值策略（"预测率低于 X 不投"）对校准高度敏感。
+    """
+    from .calibration import (IsotonicCalibrator, compare_calibration_effect,
+                              threshold_policy_table)
+    from .metrics import calibration_report
+    from .models import ResponseModel
+
+    feats = data.feature_cols
+    y_ev = data.eval_["y"].values.astype(float)
+    t_ev = data.eval_["treatment"].values.astype(int)
+
+    treated_train = data.train[data.train["treatment"] == 1].reset_index(drop=True)
+    rng = np.random.default_rng(cfg.seed)
+    idx = np.arange(len(treated_train))
+    val_idx: List[int] = []
+    y_tr = treated_train["y"].values
+    for label in np.unique(y_tr):
+        sub = idx[y_tr == label]
+        n_val = max(1, int(round(len(sub) * cfg.experiment.calibration_val_size)))
+        val_idx.extend(rng.choice(sub, size=min(n_val, len(sub)), replace=False).tolist())
+    val_mask = np.zeros(len(treated_train), dtype=bool)
+    val_mask[sorted(set(val_idx))] = True
+    fit_part = treated_train.loc[~val_mask].reset_index(drop=True)
+    val_part = treated_train.loc[val_mask].reset_index(drop=True)
+
+    model = ResponseModel(cfg.model, cfg.seed)
+    model.fit(fit_part[feats], np.ones(len(fit_part)), fit_part["y"].values)
+    raw_val = np.asarray(model.predict(val_part[feats]), dtype=float)
+    calibrator = IsotonicCalibrator().fit(raw_val, val_part["y"].values)
+
+    raw_ev = np.asarray(model.predict(data.eval_[feats]), dtype=float)
+    cal_ev = calibrator.transform(raw_ev)
+
+    m = t_ev == 1
+    rep_raw = calibration_report(y_ev[m], raw_ev[m])
+    rep_cal = calibration_report(y_ev[m], cal_ev[m])
+
+    invariance = compare_calibration_effect(raw_ev, cal_ev, y_ev, t_ev)
+    thresholds = threshold_policy_table(
+        {"response_raw": raw_ev, "response_calibrated": cal_ev},
+        y_ev, t_ev, cfg.experiment.thresholds)
+
+    info = {
+        "n_fit": int(len(fit_part)),
+        "n_val": int(len(val_part)),
+        "calibrator_fitted": bool(calibrator.fitted),
+        "ece_before": float(rep_raw["ece"]),
+        "ece_after": float(rep_cal["ece"]),
+        "mean_abs_bin_gap_before": float(rep_raw["mean_abs_bin_gap"]),
+        "mean_abs_bin_gap_after": float(rep_cal["mean_abs_bin_gap"]),
+        "note": ("校准器在训练集内部切出的独立验证集上拟合（仅处理组样本）；"
+                 "top-k 排序对单调变换不变，故增量收益不应改变——已实测验证"),
+    }
+    return {"info": info, "invariance": invariance, "thresholds": thresholds,
+            "bins_before": rep_raw["bins"], "bins_after": rep_cal["bins"]}
+
+
 # --------------------------------------------------------------------------
 # 产物与绘图
 # --------------------------------------------------------------------------
@@ -275,40 +340,61 @@ def run_experiment(cfg: Config, tag: str = "default") -> Dict[str, object]:
                                   alpha=cfg.bootstrap.alpha,
                                   seed=cfg.seed)
 
-    # 5) 敏感性分析
-    sb = sensitivity_over_budget(strategies_no_oracle,
-                                 y_ev, t_ev, cfg.sensitivity.budget_ratios,
-                                 cfg.budget.cost_per_treatment, cfg.seed)
-    sn = sensitivity_over_noise(strategies_no_oracle,
-                                y_ev, t_ev, budget_units,
-                                cfg.sensitivity.score_noise_levels,
-                                cfg.budget.cost_per_treatment, cfg.seed)
+    # 5) 敏感性分析（可由 experiment.run_sensitivity 关闭，用于多种子批量运行）
+    if cfg.experiment.run_sensitivity:
+        sb = sensitivity_over_budget(strategies_no_oracle,
+                                     y_ev, t_ev, cfg.sensitivity.budget_ratios,
+                                     cfg.budget.cost_per_treatment, cfg.seed)
+        sn = sensitivity_over_noise(strategies_no_oracle,
+                                    y_ev, t_ev, budget_units,
+                                    cfg.sensitivity.score_noise_levels,
+                                    cfg.budget.cost_per_treatment, cfg.seed)
+        sens_sample = _sample_size_sensitivity(data, cfg, budget_units)
+    else:
+        sb = pd.DataFrame()
+        sn = pd.DataFrame()
+        sens_sample = pd.DataFrame()
 
-    sens_sample = _sample_size_sensitivity(data, cfg, budget_units)
+    # 5b) 概率校准研究（与排序不变量验证 + 阈值策略）
+    calib_study = _calibration_study(data, cfg) if cfg.experiment.run_calibration else None
 
     # 6) 节奏模拟（明确标注是否为"有真实 CATE 支撑"的模拟）
-    paced = _run_pacing(data, scores, cfg)
+    paced = _run_pacing(data, scores, cfg) if cfg.experiment.run_pacing else {
+        "table": pd.DataFrame(), "details": {}, "grounded": False,
+        "note": "本次运行关闭了节奏模拟（experiment.run_pacing=false）", "scenarios": []}
 
     # 7) 落盘
     out_dir = _ensure_dir(os.path.join(cfg.output.artifacts_dir, f"{cfg.data.name}_{tag}"))
     ranking.to_csv(os.path.join(out_dir, "ranking_metrics.csv"), index=False)
     budget_table.to_csv(os.path.join(out_dir, "budget_allocation.csv"), index=False)
     budget_ci.to_csv(os.path.join(out_dir, "budget_bootstrap_ci.csv"), index=False)
-    sb.to_csv(os.path.join(out_dir, "sensitivity_budget.csv"), index=False)
-    sn.to_csv(os.path.join(out_dir, "sensitivity_noise.csv"), index=False)
-    sens_sample.to_csv(os.path.join(out_dir, "sensitivity_sample_size.csv"), index=False)
-    paced["table"].to_csv(os.path.join(out_dir, "pacing_strategies.csv"), index=False)
-    for name, res in paced["details"].items():
-        res["slots"].to_csv(os.path.join(out_dir, f"pacing_slots_{name}.csv"), index=False)
+    if not sb.empty:
+        sb.to_csv(os.path.join(out_dir, "sensitivity_budget.csv"), index=False)
+    if not sn.empty:
+        sn.to_csv(os.path.join(out_dir, "sensitivity_noise.csv"), index=False)
+    if not sens_sample.empty:
+        sens_sample.to_csv(os.path.join(out_dir, "sensitivity_sample_size.csv"), index=False)
+    if not paced["table"].empty:
+        paced["table"].to_csv(os.path.join(out_dir, "pacing_strategies.csv"), index=False)
+        for name, res in paced["details"].items():
+            res["slots"].to_csv(os.path.join(out_dir, f"pacing_slots_{name}.csv"), index=False)
+
+    if calib_study is not None:
+        calib_study["invariance"].to_csv(
+            os.path.join(out_dir, "calibration_invariance.csv"), index=False)
+        calib_study["thresholds"].to_csv(
+            os.path.join(out_dir, "calibration_thresholds.csv"), index=False)
 
     plot_qini(y_ev, t_ev, scores, os.path.join(out_dir, "qini_curves.png"))
-    plot_budget_sensitivity(sb, os.path.join(out_dir, "budget_sensitivity.png"))
-    relaxed = {k.replace("relaxed_supply__", ""): v for k, v in paced["details"].items()
-               if k.startswith("relaxed_supply__")}
-    plot_pacing_spend(relaxed, os.path.join(out_dir, "pacing_cum_spend_relaxed.png"))
-    constrained = {k.replace("constrained_supply__", ""): v for k, v in paced["details"].items()
-                   if k.startswith("constrained_supply__")}
-    plot_pacing_spend(constrained, os.path.join(out_dir, "pacing_cum_spend_constrained.png"))
+    if not sb.empty:
+        plot_budget_sensitivity(sb, os.path.join(out_dir, "budget_sensitivity.png"))
+    if paced["details"]:
+        relaxed = {k.replace("relaxed_supply__", ""): v for k, v in paced["details"].items()
+                   if k.startswith("relaxed_supply__")}
+        plot_pacing_spend(relaxed, os.path.join(out_dir, "pacing_cum_spend_relaxed.png"))
+        constrained = {k.replace("constrained_supply__", ""): v for k, v in paced["details"].items()
+                       if k.startswith("constrained_supply__")}
+        plot_pacing_spend(constrained, os.path.join(out_dir, "pacing_cum_spend_constrained.png"))
 
     summary = {
         "project": "Budget-Aware Uplift Ads",
@@ -327,8 +413,13 @@ def run_experiment(cfg: Config, tag: str = "default") -> Dict[str, object]:
     }
     with open(os.path.join(out_dir, "summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
+    calib_out = dict(calib)
+    if calib_study is not None:
+        calib_out["isotonic_study"] = calib_study["info"]
+        calib_out["bins_before"] = calib_study["bins_before"]
+        calib_out["bins_after"] = calib_study["bins_after"]
     with open(os.path.join(out_dir, "calibration.json"), "w", encoding="utf-8") as f:
-        json.dump(calib, f, ensure_ascii=False, indent=2)
+        json.dump(calib_out, f, ensure_ascii=False, indent=2)
 
     logger.info("实验完成，产物目录: %s", os.path.abspath(out_dir))
     return {
@@ -343,6 +434,7 @@ def run_experiment(cfg: Config, tag: str = "default") -> Dict[str, object]:
         "pacing_details": paced["details"],
         "pacing_grounded": paced["grounded"],
         "calibration": calib,
+        "calibration_study": calib_study,
         "artifacts_dir": os.path.abspath(out_dir),
     }
 

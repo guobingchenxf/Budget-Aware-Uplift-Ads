@@ -14,15 +14,24 @@
 |---|---|---|---|
 | 半合成·aligned（高基线=高增量） | 109.9（3.52×随机） | 91～102（2.9～3.3×） | 31.2 |
 | 半合成·conflicting（高基线=低增量） | **10.5** | **21～29** | −11.3 |
-| Hillstrom 真实数据（5% 预算） | 7.6～9.7 | 0.8～22.4 | 18.4 |
+| Hillstrom 真实数据（5% 预算，10 种子均值） | 27.2 | 24.4～31.9 | 18.4 |
 
 1. **当"高转化概率"与"高增量"方向一致时，响应模型几乎不输**（aligned 场景 3.52× vs 3.28×）——
    这是"uplift 建模没用"这类说法流行的原因；
-2. **两者方向相反时，响应模型会系统性选错人**（conflicting 场景 10.5 vs 21～29，且随机策略为 −11.3）；
-3. **在真实公开数据 Hillstrom 上，5% 预算下所有策略与随机的差异都不显著**——
-   自助法 95% 置信区间全部跨越 0。按观测到的方差反推，要分辨 20% 的策略提升需要约 **136 万**评估样本，
-   而 Hillstrom 全量只有 6.4 万。
-   **"没有显著差异"本身就是本研究最重要的结论之一，我们不把它包装成"方法有效"。**
+2. **两者方向相反时，响应模型会系统性选错人**（conflicting 场景 10.5 vs 21～29，随机为 −11.3）；
+3. **在真实数据上，模型排序确实优于随机，但两种排序方式之间分不出高下**：
+   10 种子配对检验显示 s_learner / response / t_learner 显著优于随机
+   （配对差 +13.5 / +8.8 / +8.2，t95 均不含 0），
+   但 **s_learner − response = +4.63 [−1.55, +10.81]，不显著**。
+   **核心研究假设（"按增量排序优于按转化率排序"）在 Hillstrom 上依然得不到支持。**
+4. **一次真实的方法论翻车与纠正**：单种子 + 自助法曾让我得出"什么都测不出来"，
+   并据此估算"需要 136 万样本"。10 种子配对检验证明那个估算**只对低效的比较设计成立**——
+   6.4 万行 × 10 种子就够了。**问题不是数据不够，是比较设计不够有效。**
+5. **概率校准（isotonic）是"有用的毒药"**：ECE 从 0.0298 降到 0.0112（降 62%），
+   但它把 8020 个不同分数**压成只剩 30 个取值**，导致 top-k 排序退化
+   （k=1920 时增量 −36%）；而在**绝对阈值决策**下校准又明显更好
+   （τ=0.15 时触达比例从 52.8% 修正到 64.3%，增量 +25%）。
+   **正确用法：排序用原始分，乘钱/过阈值用校准分。**
 
 **投放节奏（模拟）**：把预算前置花掉是最大的浪费（仅为均匀投放的 25～28%）；
 流量供给受限时，均匀投放会**剩下 17% 的预算花不出去**，而反馈控制器能把预算追回来
@@ -116,12 +125,14 @@ powershell -ExecutionPolicy Bypass -File scripts\run_all.ps1
 
 ```powershell
 # 或分步执行
-.\.venv\Scripts\python.exe -m pytest tests -q                                  # 单元测试（31 项）
+.\.venv\Scripts\python.exe -m pytest tests -q                                  # 单元测试（40 项）
 .\.venv\Scripts\python.exe -m baua.cli run --config configs/default.yaml --tag main
 .\.venv\Scripts\python.exe -m baua.cli run --config configs/default.yaml --tag synthetic `
     --set data.name=synthetic data.max_rows=40000
 .\.venv\Scripts\python.exe -m baua.cli run --config configs/default.yaml --tag synthetic_conflicting `
     --set data.name=synthetic data.max_rows=40000 data.synthetic_mode=conflicting
+# 多种子重训 + 配对方差分解（约 8 分钟，回答"策略差异是否稳定"）
+.\.venv\Scripts\python.exe -m baua.cli multiseed --config configs/default.yaml --seeds 10 --tag multiseed_main
 ```
 
 ## 预期输出
@@ -137,9 +148,20 @@ powershell -ExecutionPolicy Bypass -File scripts\run_all.ps1
 | `sensitivity_budget.csv` | 预算比例 1%/2%/5%/10%/20% 的对比 |
 | `sensitivity_noise.csv` | 分数加噪 0～2σ 的鲁棒性 |
 | `sensitivity_sample_size.csv` | 训练样本 5k/20k/全部 的影响 |
+| `calibration_invariance.csv` | **校准对 top-k 排序的影响**（含引入的并列数） |
+| `calibration_thresholds.csv` | 绝对阈值策略：未校准 vs 校准 |
 | `pacing_strategies.csv` + `pacing_slots_*.csv` | 节奏策略对比与逐时段明细（含 relaxed/constrained 两个供给场景） |
-| `calibration.json` | 响应模型校准报告（ECE）与半合成 CATE 校准 |
+| `calibration.json` | ECE 前后对比、分桶明细、校准器拟合信息 |
 | `qini_curves.png`、`budget_sensitivity.png`、`pacing_cum_spend_*.png` | 图 |
+
+`multiseed` 命令额外产出（写在 `artifacts/` 根目录）：
+
+| 文件 | 内容 |
+|---|---|
+| `multiseed_*_per_seed.csv` | 每个种子 × 策略的 gain / Qini |
+| `multiseed_*_summary.csv` | **跨种子均值±标准差 + 配对差异的 t 区间与显著性** |
+| `multiseed_*_paired_diff.csv` | 逐种子的配对差值（同 seed 内减去 random） |
+| `multiseed_*_qini_summary.csv` | Qini 的跨种子稳定性 |
 
 ## 常见问题
 

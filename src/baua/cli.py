@@ -97,6 +97,29 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_multiseed(args: argparse.Namespace) -> int:
+    """多种子重训 + 配对方差分解（用于回答"策略差异是否稳定"）。"""
+    from .multiseed import run_multiseed
+
+    cfg = load_config(args.config, _parse_overrides(args.set))
+    if args.artifacts:
+        cfg.output.artifacts_dir = args.artifacts
+    res = run_multiseed(cfg, n_seeds=args.seeds, tag=args.tag)
+    print("\n=== 多种子汇总（跨种子 gain 均值 ± 标准差）===")
+    cols = [c for c in ["strategy", "n_seeds", "gain_mean", "gain_std",
+                        "paired_diff_vs_random_mean", "paired_diff_vs_random_lo",
+                        "paired_diff_vs_random_hi", "paired_diff_vs_random_significant"]
+            if c in res["summary"].columns]
+    print(res["summary"][cols].sort_values("gain_mean", ascending=False)
+          .to_string(index=False, float_format=lambda x: f"{x:.3f}"))
+    print("\n=== Qini 跨种子汇总 ===")
+    print(res["qini_summary"].sort_values("qini_mean", ascending=False)
+          .to_string(index=False, float_format=lambda x: f"{x:.4f}"))
+    print("\n产物目录:", res["out_dir"])
+    print(f"（共 {len(res['seeds'])} 个种子: {res['seeds'][:3]} ... {res['seeds'][-1]}）")
+    return 0
+
+
 def _print_headline(res: Dict[str, object]) -> None:
     print("\n=== 排序指标（真实数据上的观测估计）===")
     print(res["ranking"].to_string(index=False, float_format=lambda x: f"{x:.5f}"))
@@ -127,6 +150,14 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--set", nargs="*")
     sp.add_argument("--artifacts", default="_smoke_out")
     sp.set_defaults(func=cmd_smoke)
+
+    sp = sub.add_parser("multiseed", help="多种子重训 + 配对方差分解")
+    sp.add_argument("--config", default="configs/default.yaml")
+    sp.add_argument("--set", nargs="*")
+    sp.add_argument("--seeds", type=int, default=10, help="种子个数")
+    sp.add_argument("--tag", default="multiseed")
+    sp.add_argument("--artifacts", default=None)
+    sp.set_defaults(func=cmd_multiseed)
     return p
 
 

@@ -73,6 +73,18 @@ bootstrap:
   n_boot: 300
   alpha: 0.05
 
+experiment:
+  # 关闭这些开关可让单次运行更快（多种子批量运行时会自动关闭）
+  run_sensitivity: true
+  run_pacing: true
+  run_calibration: true
+  # 校准器拟合所需的验证集比例（从**训练集内部**再切分，避免用评估集校准）
+  calibration_val_size: 0.2
+  # 绝对阈值策略的业务阈值（"预测转化率低于 X 不投"）
+  thresholds: [0.05, 0.08, 0.10, 0.15]
+  # multiseed 命令默认的种子个数
+  n_seeds: 10
+
 output:
   artifacts_dir: artifacts
   log_level: INFO
