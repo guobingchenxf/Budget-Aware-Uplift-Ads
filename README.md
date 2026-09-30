@@ -3,12 +3,12 @@
 
 ---
 
-## 30 秒说明
+## 项目说明
 
 **研究问题**：广告预算有限时，按"预测转化概率"选人，还是按"广告带来的**增量**转化"选人，
 哪种策略能带来更高的增量收益？模型误差、概率校准与预算消耗速度会如何影响结论？
 
-**核心结论（本机实测，非编造）**：
+**核心结论（本机实测）**：
 
 | 数据/场景 | 响应模型（按预测转化率） | Uplift 模型（按增量） | 随机 |
 |---|---|---|---|
@@ -54,7 +54,7 @@
 
 ---
 
-## ⚠️ 重要声明（请先读）
+## ⚠️ 重要声明
 
 1. **这是研究型原型，不是生产系统。** 没有复现任何公司的内部系统，
    也没有做线上 A/B 实验，不宣称任何业务提升。
@@ -79,7 +79,7 @@
 | 磁盘 | 约 50MB（数据 4MB + 产物） |
 | 系统 | Windows（实测）/ Linux / WSL |
 
-### 已知坑：不要用全局 Python 环境
+### 已踩过的坑：不要用全局 Python 环境
 
 本机全局环境是 **numpy 2.2.3，已破坏 scipy/scikit-learn**（ABI 不兼容，
 导入 sklearn 直接抛 `A module that was compiled using NumPy 1.x cannot be run in NumPy 2.2.3`）。
@@ -105,7 +105,7 @@ python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 ```
 
-## 数据准备（不会自动下载）
+## 数据准备
 
 ```powershell
 .\.venv\Scripts\python.exe -m baua.cli download      # 下载 Hillstrom 并校验 SHA256
@@ -230,23 +230,20 @@ curl -s -X POST http://127.0.0.1:8000/allocate -H "Content-Type: application/jso
 mypy 初次 **55 项错误**，根因是把异构返回值标注为 `dict[str, object]` 导致无法推断属性，
 改为 `dict[str, Any]` 并补 `types-PyYAML` 后归零。详见 `docs/实验报告.md` §6。
 
-## 常见问题
-
-**Q：为什么 `python -m baua.cli` 找不到模块？**
-A：没有安装包。执行 `.\.venv\Scripts\python.exe -m pip install -e .`。
+## 常见问题说明
 
 **Q：为什么 sklearn 导入报 NumPy 版本错误？**
 A：用到了全局 Python。请用 `.venv\Scripts\python.exe`。
 
-**Q：能下载 Criteo Uplift 数据集吗？**
+**Q：能下载 Criteo Uplift 数据集吗？**（仍未成功，后续可能会进一步迭代并进行实验，也许会得到更显著的结论）
 A：官方链接已核验但**本机不可达**（返回 404 / 连接超时），因此不作为默认数据源。
-若你已手动下载，可用 `baua.data.load_criteo_manual()` 读取。详见 `docs/论文与仓库调研.md`。
+若已手动下载，可用 `baua.data.load_criteo_manual()` 读取。详见 `docs/论文与仓库调研.md`。
 
 **Q：结果怎么复现？**
 A：所有随机性由 `configs/*.yaml` 的 `seed` 控制；`summary.json` 记录了完整的配置快照与运行环境。
 已验证：同种子跑两次 smoke，指标完全一致。
 
-## 限制（务必阅读）
+## 项目局限性
 
 - 数据集是**邮件营销**随机实验，不是广告竞价数据，无成本/预算/竞价字段；
 - 预算与节奏均为**模拟**，由此得到的"收益"是模拟核算值；
@@ -266,32 +263,5 @@ A：所有随机性由 `configs/*.yaml` 的 `seed` 控制；`summary.json` 记�
 
 ## 许可
 
-本项目代码采用 MIT 许可（见 `LICENSE`，**其中版权人姓名仍是 TODO，发布前请替换**）。
+本项目代码采用 MIT 许可（见 `LICENSE`）。
 数据集版权归原作者，使用前请遵守其条款。
-
-## 发布到 GitHub 前的检查清单（需人工审核）
-
-本仓库**已在本地初始化 Git 并提交，但没有配置任何远端，也不会自动推送**。发布前请人工确认：
-
-```powershell
-# 1) 确认没有任何数据/模型/密钥被纳入版本控制
-git status
-git ls-files | Select-String -Pattern "\.(csv|gz|parquet|pkl|joblib)$"   # 应无输出
-git ls-files | Select-String -Pattern "(\.env|secret|credential|\.key)"   # 应无输出
-
-# 2) 替换占位信息
-#    - LICENSE 中的版权人姓名
-#    - pyproject.toml 中的 authors
-#    - README 顶部的仓库地址（如有）
-
-# 3) 逐条核验 docs/论文与仓库调研.md 中标记为 ❓未核验 的引用
-
-# 4) 确认没有把模拟结果表述为线上效果（README/文档/讲稿三处自查）
-
-# 5) 确认远端后手动推送（本仓库不做自动推送）
-git remote add origin <你的仓库地址>     # 需人工确认地址正确
-git push -u origin main                  # 人工执行
-```
-
-**切勿提交**：`data/`、`artifacts/`、`.venv/`、任何密钥或凭据。这些已在 `.gitignore` 中排除，
-但请在 `git add` 后再次用 `git status` 确认。
