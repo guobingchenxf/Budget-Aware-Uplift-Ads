@@ -1,7 +1,4 @@
-"""指标模块测试：针对真实行为的断言（不使用 mock）。
-
-这些测试的意图是：如果 Qini/AUUC/增量收益的实现出错，
-在半合成数据（真实 CATE 已知）上必然暴露。
+"""指标模块测试
 """
 
 from __future__ import annotations
