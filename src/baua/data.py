@@ -1,16 +1,3 @@
-"""数据加载：Hillstrom（主）/ 半合成（已知真实 CATE）/ Criteo（需手动获取）。
-
-重要事实（已实测核验，见 docs/论文与仓库调研.md）：
-- Hillstrom 数据集来自 MineThatData E-Mail Analytics And Data Mining Challenge (2008)，
-  64,000 行、12 列，无缺失值，是三臂随机实验：
-  Mens E-Mail 21307 / Womens E-Mail 21387 / No E-Mail 21306。
-- 该数据集的干预是"营销邮件触达"，**不是广告曝光**。
-  本项目把它作为"随机干预 + 二值结果"的公开基准，用于研究
-  预算约束下的增量排序问题，不宣称它等价于真实广告投放数据。
-- Criteo Uplift 数据集官方链接已核验存在但本环境不可达（详见文档），
-  因此**不作为默认数据源**；代码只提供手动放置后的读取入口。
-"""
-
 from __future__ import annotations
 
 import hashlib
