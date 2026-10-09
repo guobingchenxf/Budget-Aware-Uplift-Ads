@@ -1,5 +1,5 @@
 # Budget-Aware Uplift Ads
-### 预算约束下的增量转化广告排序与投放节奏优化（研究型原型）
+### 预算约束下的增量转化广告排序与投放节奏优化（广告算法研究类项目）
 
 ---
 
@@ -54,20 +54,6 @@
 
 ---
 
-## ⚠️ 重要声明
-
-1. **这是研究型原型，不是生产系统。** 没有复现任何公司的内部系统，
-   也没有做线上 A/B 实验，不宣称任何业务提升。
-2. **所有成本、预算、时段、价值系数均为模拟变量。** 公开数据集（Hillstrom）不含广告成本、
-   预算或竞价字段；`cost_per_treatment`、`budget_ratio`、`peak_slot_boost` 等全部是模拟假设。
-3. **数据集的干预是"营销邮件触达"，不是广告曝光。** 它提供的是"随机干预 + 二值结果"的
-   公开基准，用于研究预算约束下的增量排序问题，**不等价于真实广告投放**。
-4. **Qini/AUUC 是排序指标，不是收益指标。** 本项目的实测显示：
-   conflicting 场景下所有策略的归一化 Qini 均为负值，而预算分配口径下 uplift 模型明显胜出——
-   排序指标在"总效应接近零"时会失效（与 UpliftBench 2026 的警告一致）。
-
----
-
 ## 环境要求
 
 | 项目 | 要求 |
@@ -79,18 +65,13 @@
 | 磁盘 | 约 50MB（数据 4MB + 产物） |
 | 系统 | Windows（实测）/ Linux / WSL |
 
-### 已踩过的坑：不要用全局 Python 环境
-
-本机全局环境是 **numpy 2.2.3，已破坏 scipy/scikit-learn**（ABI 不兼容，
-导入 sklearn 直接抛 `A module that was compiled using NumPy 1.x cannot be run in NumPy 2.2.3`）。
-本项目锁定 `numpy==1.26.4`，**必须使用项目自带 `.venv`**。
 
 ---
 
 ## 安装
 
 ```powershell
-# Windows PowerShell（在项目根目录）
+# Windows PowerShell
 py -3.10 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
@@ -129,7 +110,7 @@ python3 -m venv .venv
 ```
 
 跑的是半合成小样本（4000 行、60 棵树），用于验证"数据 → 建模 → 指标 → 预算模拟 → 节奏模拟 → 产物"
-整条链路。**结果不用于任何结论。**
+整条链路。
 
 ## 完整实验命令
 
@@ -214,34 +195,7 @@ curl -s -X POST http://127.0.0.1:8000/allocate -H "Content-Type: application/jso
   -d '{"rows":[{...}],"strategy":"s_learner","mode":"topk","budget_units":5}'
 ```
 
-**明确的非目标**（不要把它说成生产系统）：无鉴权、无限流、无在线特征拼接、
-无模型热更新、无 GPU 批量推理。特征必须由调用方提供；缺列直接返回 422。
 
-## 上线前的质量门（本轮补齐）
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"   # ruff + mypy + pytest
-.\.venv\Scripts\python.exe -m ruff check src tests      # 期望：All checks passed!
-.\.venv\Scripts\python.exe -m mypy src/baua             # 期望：Success: no issues found
-.\.venv\Scripts\python.exe -m pytest tests              # 期望：66 passed
-```
-
-真实记录（不美化）：ruff 初次扫描 **191 项**、自动修复 198 项、手工修 9 项（含 2 处**真实未使用变量**）；
-mypy 初次 **55 项错误**，根因是把异构返回值标注为 `dict[str, object]` 导致无法推断属性，
-改为 `dict[str, Any]` 并补 `types-PyYAML` 后归零。详见 `docs/实验报告.md` §6。
-
-## 常见问题说明
-
-**Q：为什么 sklearn 导入报 NumPy 版本错误？**
-A：用到了全局 Python。请用 `.venv\Scripts\python.exe`。
-
-**Q：能下载 Criteo Uplift 数据集吗？**（仍未成功，后续可能会进一步迭代并进行实验，也许会得到更显著的结论）
-A：官方链接已核验但**本机不可达**（返回 404 / 连接超时），因此不作为默认数据源。
-若已手动下载，可用 `baua.data.load_criteo_manual()` 读取。详见 `docs/论文与仓库调研.md`。
-
-**Q：结果怎么复现？**
-A：所有随机性由 `configs/*.yaml` 的 `seed` 控制；`summary.json` 记录了完整的配置快照与运行环境。
-已验证：同种子跑两次 smoke，指标完全一致。
 
 ## 项目局限性
 
