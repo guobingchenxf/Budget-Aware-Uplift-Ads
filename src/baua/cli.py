@@ -1,12 +1,3 @@
-"""命令行入口。
-
-用法（全部在项目根目录执行，使用项目自带虚拟环境）：
-  .venv\\Scripts\\python.exe -m baua.cli download
-  .venv\\Scripts\\python.exe -m baua.cli inspect-data
-  .venv\\Scripts\\python.exe -m baua.cli smoke
-  .venv\\Scripts\\python.exe -m baua.cli run --config configs/default.yaml --tag main
-"""
-
 from __future__ import annotations
 
 import argparse
