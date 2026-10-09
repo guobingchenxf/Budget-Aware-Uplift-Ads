@@ -1,10 +1,3 @@
-"""配置加载与日志。
-
-设计原则：
-- 单一配置入口（configs/*.yaml），命令行可覆盖关键字段；
-- 所有随机性由 config.seed 控制；
-- 不为"看起来工程化"而引入额外依赖。
-"""
 
 from __future__ import annotations
 
