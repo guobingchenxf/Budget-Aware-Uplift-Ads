@@ -1,4 +1,4 @@
-"""预算分配与节奏模拟测试：断言真实行为，不 mock。"""
+"""预算分配与节奏模拟测试"""
 
 from __future__ import annotations
 
