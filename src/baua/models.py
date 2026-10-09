@@ -1,19 +1,3 @@
-"""模型：响应模型基线 + 经典 uplift 学习器（S/T/X-learner + 类别变换）。
-
-统一接口：
-    model.fit(X, t, y)
-    model.predict(X) -> score
-其中 score 的语义由 `score_kind` 决定：
-    - "response"：预测处理后的转化概率 P(y=1|x, t=1)
-    - "uplift"  ：预测增量 τ(x) = P(y=1|x,t=1) - P(y=1|x,t=0)
-
-实现说明（避免"堆模型名"）：
-- 全部使用 LightGBM（CPU 友好、表格数据强），没有任何 GPU 依赖。
-- 所有学习器都显式写出其识别假设与局限，见各类 docstring。
-- X-learner 的加权组合严格按 Künzel et al. (2019) 的 g(x)=propensity 形式实现；
-  另提供 weight_mode="balanced" 的等权变体，便于对照。
-"""
-
 from __future__ import annotations
 
 from typing import Any
