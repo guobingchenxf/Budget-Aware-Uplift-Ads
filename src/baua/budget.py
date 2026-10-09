@@ -1,20 +1,3 @@
-"""预算约束下的分配模拟。
-
-⚠️ 重要声明：公开数据集（Hillstrom）**不含**任何广告成本、预算、竞价字段。
-本模块中的 `cost_per_treatment` 与 `budget` 全部是**模拟参数**，
-用于研究"预算有限时该按什么排序"这一问题，**不代表真实投放成本或收益**。
-
-模拟方式（与文档一致）：
-1. 策略给出每个候选用户的分数（响应概率或 uplift）；
-2. 按分数降序取前 k 个，k = floor(budget / cost_per_treatment)；
-3. 用随机实验的 treated/control 结构估计被选中集合的增量收益 G(S)
-   （见 metrics.policy_gain）；
-4. 报告增量收益、消耗、单位成本收益等。
-
-前提：treatment 随机分配（Hillstrom 满足）。若数据非随机，
-该估计不成立，需要倾向性加权或工具变量等方法（列入后续路线）。
-"""
-
 from __future__ import annotations
 
 from typing import Any
