@@ -1,13 +1,3 @@
-"""模型持久化：训练好的策略模型 + 元数据（特征列、类别列、指标）。
-
-用途：
-- `baua.cli fit` 训练并保存；
-- `baua.cli serve` 加载后对外提供打分与预算分配接口。
-
-设计上刻意保持简单：joblib 序列化 + 一份 JSON 元数据。
-不引入 MLflow / 模型注册中心——本项目的目标是可复现的研究原型。
-"""
-
 from __future__ import annotations
 
 import json
