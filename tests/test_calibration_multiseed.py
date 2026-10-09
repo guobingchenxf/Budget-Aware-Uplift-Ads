@@ -1,4 +1,4 @@
-"""校准与多种子聚合的测试（针对真实行为，不做 mock 断言）。"""
+"""校准与多种子聚合的测试"""
 
 from __future__ import annotations
 
